@@ -115,3 +115,25 @@ def run_pipeline_on_unclassified(
         run_pipeline_on_transaction(db, txn, pipeline)
         count += 1
     return count
+
+
+def run_pipeline_on_import_batch(
+    db: Session,
+    import_batch_id: int,
+    pipeline: ClassificationPipeline,
+) -> int:
+    """Run pipeline on transactions belonging to a given import batch."""
+    transactions = (
+        db.query(Transaction)
+        .filter(
+            Transaction.import_batch_id == import_batch_id,
+            Transaction.predicted_category_id.is_(None),
+            Transaction.final_category_id.is_(None),
+        )
+        .all()
+    )
+    count = 0
+    for txn in transactions:
+        run_pipeline_on_transaction(db, txn, pipeline)
+        count += 1
+    return count

@@ -2,8 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps import get_pipeline
 from app.models.account import Account
+from app.pipeline.pipeline import ClassificationPipeline
 from app.schemas.transaction import ImportResult
+from app.services.classification_service import run_pipeline_on_import_batch
 from app.services.ingestion_service import ingest_file
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
@@ -14,6 +17,7 @@ async def upload_bank_statement(
     file: UploadFile = File(...),
     account_id: int = Query(..., description="Account to import into"),
     db: Session = Depends(get_db),
+    pipeline: ClassificationPipeline = Depends(get_pipeline),
 ):
     account = db.get(Account, account_id)
     if not account:
@@ -35,6 +39,10 @@ async def upload_bank_statement(
         batch = ingest_file(db, content, file.filename or "unknown.csv", account_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Populate predictions immediately after ingestion so the UI can show
+    # rule/override-based suggestions without requiring a manual re-run.
+    run_pipeline_on_import_batch(db, batch.id, pipeline)
 
     return ImportResult(
         batch_id=batch.id,
