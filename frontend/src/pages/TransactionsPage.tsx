@@ -11,6 +11,7 @@ import {
   type Category,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { getCategoryIcon } from "@/lib/categoryIcons";
 
 type FilterMode = "all" | "unclassified" | "classified";
 
@@ -37,8 +38,10 @@ function ClassifyCell({
   );
 
   if (transaction.final_category_id) {
+    const Icon = getCategoryIcon(transaction.final_category_name);
     return (
       <div className="flex items-center gap-2">
+        <Icon className="h-4 w-4 text-muted-foreground" />
         <Badge variant="default">{transaction.final_category_name}</Badge>
         <span className="text-xs text-muted-foreground">
           ({transaction.classification_source})
@@ -52,6 +55,10 @@ function ClassifyCell({
       {transaction.predicted_category_name && (
         <div className="flex items-center gap-1">
           <Sparkles className="h-3 w-3 text-primary" />
+          {(() => {
+            const Icon = getCategoryIcon(transaction.predicted_category_name);
+            return <Icon className="h-4 w-4 text-muted-foreground" />;
+          })()}
           <span className="text-xs text-muted-foreground">
             Suggestion: {transaction.predicted_category_name}
           </span>
