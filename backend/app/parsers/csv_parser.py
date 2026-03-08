@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import re
 from datetime import date, datetime
 
@@ -64,18 +65,124 @@ class CSVBankParser(BankParser):
     def can_parse(self, file_content: str, filename: str) -> bool:
         return filename.lower().endswith(".csv")
 
-    def parse(self, file_content: str, filename: str) -> list[ParsedTransaction]:
+    def _make_reader(self, file_content: str, delimiter: str | None):
         sample = file_content[:4096]
+        if delimiter:
+            return csv.reader(io.StringIO(file_content), delimiter=delimiter)
         try:
             dialect = csv.Sniffer().sniff(sample, delimiters=";,\t|")
-            reader = csv.reader(io.StringIO(file_content), dialect)
+            return csv.reader(io.StringIO(file_content), dialect)
         except csv.Error:
             # Fallback: choose delimiter by frequency across first few lines.
             first_lines = "\n".join(sample.splitlines()[:20])
             candidates = [";", ",", "\t", "|"]
             counts = {d: first_lines.count(d) for d in candidates}
             best = max(counts, key=counts.get)
-            reader = csv.reader(io.StringIO(file_content), delimiter=best)
+            return csv.reader(io.StringIO(file_content), delimiter=best)
+
+    def _row_to_line(self, row: list[str], delimiter: str) -> str:
+        buf = io.StringIO()
+        w = csv.writer(buf, delimiter=delimiter)
+        w.writerow(row)
+        return buf.getvalue().rstrip("\r\n")
+
+    def parse_with_profile(
+        self,
+        file_content: str,
+        filename: str,
+        *,
+        delimiter: str | None,
+        date_column: str,
+        amount_column: str,
+        currency_column: str | None,
+        merchant_columns: list[str],
+        description_columns: list[str],
+    ) -> list[ParsedTransaction]:
+        reader = self._make_reader(file_content, delimiter)
+        header = self._find_header(reader)
+        if header is None:
+            raise ValueError("Could not detect CSV header row")
+
+        # If delimiter wasn't explicitly set, infer it from the reader dialect if possible.
+        active_delim = delimiter or ";"
+        if delimiter is None and hasattr(reader, "dialect"):
+            try:
+                active_delim = reader.dialect.delimiter
+            except Exception:
+                pass
+
+        header_clean = [c.strip().strip('"') for c in header]
+        header_to_idx = {h: i for i, h in enumerate(header_clean)}
+
+        if date_column not in header_to_idx or amount_column not in header_to_idx:
+            raise ValueError("Import profile columns not found in CSV header")
+
+        wanted_cols = set([date_column, amount_column])
+        if currency_column:
+            wanted_cols.add(currency_column)
+        wanted_cols.update([c for c in merchant_columns if c])
+        wanted_cols.update([c for c in description_columns if c])
+
+        transactions: list[ParsedTransaction] = []
+        for row in reader:
+            if not row or all(c.strip() == "" for c in row):
+                continue
+
+            row_values: dict[str, str] = {}
+            for col in wanted_cols:
+                idx = header_to_idx.get(col)
+                if idx is None or idx >= len(row):
+                    row_values[col] = ""
+                else:
+                    row_values[col] = row[idx].strip().strip('"')
+
+            try:
+                date_val = _parse_date(row_values[date_column])
+                amount = _parse_amount(row_values[amount_column])
+            except ValueError:
+                continue
+
+            currency = "EUR"
+            if currency_column:
+                currency = (row_values.get(currency_column) or "EUR").strip().strip('"') or "EUR"
+
+            combined_parts: list[str] = []
+            for col in merchant_columns:
+                v = row_values.get(col, "").strip()
+                if v:
+                    combined_parts.append(v)
+            for col in description_columns:
+                v = row_values.get(col, "").strip()
+                if v:
+                    combined_parts.append(v)
+            combined_text = " ".join(combined_parts).strip()
+
+            merchant = extract_merchant(combined_text) if combined_text else ""
+            description = combined_text if combined_text else f"Transaction {date_val}"
+
+            raw_row_json = json.dumps(
+                {h: (row[i] if i < len(row) else "") for i, h in enumerate(header_clean)},
+                ensure_ascii=False,
+            )
+            raw_row_line = self._row_to_line(row, active_delim)
+
+            transactions.append(
+                ParsedTransaction(
+                    date=date_val,
+                    amount=amount,
+                    raw_description=combined_text,
+                    description=description,
+                    merchant=merchant,
+                    currency=currency,
+                    raw_row_json=raw_row_json,
+                    raw_row_line=raw_row_line,
+                )
+            )
+
+        return transactions
+
+    def parse(self, file_content: str, filename: str) -> list[ParsedTransaction]:
+        reader = self._make_reader(file_content, delimiter=None)
 
         header = self._find_header(reader)
         if header is None:

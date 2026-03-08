@@ -10,6 +10,7 @@ import {
   type TransactionListResponse,
   type Category,
   type SimilarTransactionCandidate,
+  type TransactionRaw,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getCategoryIcon } from "@/lib/categoryIcons";
@@ -232,6 +233,10 @@ export default function TransactionsPage() {
     new Set()
   );
   const [similarLoading, setSimilarLoading] = useState(false);
+
+  const [expandedTxnId, setExpandedTxnId] = useState<number | null>(null);
+  const [expandedRaw, setExpandedRaw] = useState<TransactionRaw | null>(null);
+  const [expandedLoading, setExpandedLoading] = useState(false);
 
   const load = useCallback(() => {
     const params: {
@@ -546,36 +551,116 @@ export default function TransactionsPage() {
               </thead>
               <tbody>
                 {data?.items.map((txn) => (
-                  <tr
-                    key={txn.id}
-                    className="border-b hover:bg-muted/30 transition-colors"
-                  >
-                    <td className="p-3 whitespace-nowrap">
-                      {formatDate(txn.date)}
-                    </td>
-                    <td className="p-3 max-w-xs truncate" title={txn.raw_description}>
-                      {txn.description}
-                    </td>
-                    <td className="p-3 whitespace-nowrap">{txn.merchant}</td>
-                    <td
-                      className={`p-3 text-right whitespace-nowrap font-mono ${
-                        txn.amount >= 0 ? "text-success" : "text-destructive"
-                      }`}
+                  <>
+                    <tr
+                      key={txn.id}
+                      className="border-b hover:bg-muted/30 transition-colors"
                     >
-                      {formatCurrency(txn.amount)}
-                    </td>
-                    <td className="p-3">
-                      <ClassifyCell
-                        transaction={txn}
-                        categories={categories}
-                        onClassify={handleClassify}
-                        onCategoryCreated={async (_newId) => {
-                          await refreshCategories();
-                        }}
-                        onError={(msg) => setError(msg)}
-                      />
-                    </td>
-                  </tr>
+                      <td className="p-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              if (expandedTxnId === txn.id) {
+                                setExpandedTxnId(null);
+                                setExpandedRaw(null);
+                                return;
+                              }
+                              setExpandedTxnId(txn.id);
+                              setExpandedLoading(true);
+                              try {
+                                const raw = await api.getTransactionRaw(txn.id);
+                                setExpandedRaw(raw);
+                              } catch {
+                                setExpandedRaw(null);
+                              } finally {
+                                setExpandedLoading(false);
+                              }
+                            }}
+                          >
+                            More
+                          </Button>
+                          <span>{formatDate(txn.date)}</span>
+                        </div>
+                      </td>
+                      <td className="p-3 max-w-xs truncate" title={txn.raw_description}>
+                        {txn.description}
+                      </td>
+                      <td className="p-3 whitespace-nowrap">{txn.merchant}</td>
+                      <td
+                        className={`p-3 text-right whitespace-nowrap font-mono ${
+                          txn.amount >= 0 ? "text-success" : "text-destructive"
+                        }`}
+                      >
+                        {formatCurrency(txn.amount)}
+                      </td>
+                      <td className="p-3">
+                        <ClassifyCell
+                          transaction={txn}
+                          categories={categories}
+                          onClassify={handleClassify}
+                          onCategoryCreated={async (_newId) => {
+                            await refreshCategories();
+                          }}
+                          onError={(msg) => setError(msg)}
+                        />
+                      </td>
+                    </tr>
+                    {expandedTxnId === txn.id && (
+                      <tr className="border-b bg-muted/20">
+                        <td colSpan={5} className="p-3">
+                          {expandedLoading ? (
+                            <div className="text-sm text-muted-foreground">
+                              Loading raw import data...
+                            </div>
+                          ) : expandedRaw ? (
+                            <div className="space-y-3">
+                              {expandedRaw.raw_row_line && (
+                                <div>
+                                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                                    Raw line
+                                  </div>
+                                  <pre className="text-xs whitespace-pre-wrap rounded-md border border-border bg-background p-3">
+                                    {expandedRaw.raw_row_line}
+                                  </pre>
+                                </div>
+                              )}
+                              {expandedRaw.raw_row_json && (
+                                <div>
+                                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                                    Raw row (JSON)
+                                  </div>
+                                  <pre className="text-xs whitespace-pre-wrap rounded-md border border-border bg-background p-3">
+                                    {(() => {
+                                      try {
+                                        return JSON.stringify(
+                                          JSON.parse(expandedRaw.raw_row_json),
+                                          null,
+                                          2
+                                        );
+                                      } catch {
+                                        return expandedRaw.raw_row_json;
+                                      }
+                                    })()}
+                                  </pre>
+                                </div>
+                              )}
+                              {!expandedRaw.raw_row_json && !expandedRaw.raw_row_line && (
+                                <div className="text-sm text-muted-foreground">
+                                  No raw import data stored for this transaction.
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-muted-foreground">
+                              No raw import data available.
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 ))}
                 {data?.items.length === 0 && (
                   <tr>

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.config import settings
 from app.database import Base, SessionLocal, engine
@@ -21,6 +22,7 @@ from app.routers import (
     accounts,
     categories,
     dashboard,
+    import_profiles,
     ml,
     overrides,
     rules,
@@ -34,12 +36,26 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _ensure_transactions_raw_columns():
+    # SQLite doesn't support ALTER COLUMN; we add missing columns safely.
+    with engine.begin() as conn:
+        cols = conn.execute(text("PRAGMA table_info(transactions)")).fetchall()
+        existing = {r[1] for r in cols}
+
+        if "raw_row_json" not in existing:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN raw_row_json TEXT"))
+        if "raw_row_line" not in existing:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN raw_row_line TEXT"))
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     for d in [settings.data_dir, settings.ml_model_dir, settings.upload_dir]:
         Path(d).mkdir(parents=True, exist_ok=True)
 
     Base.metadata.create_all(bind=engine)
+
+    _ensure_transactions_raw_columns()
 
     db = SessionLocal()
     try:
@@ -72,6 +88,7 @@ app.add_middleware(
 
 app.include_router(accounts.router)
 app.include_router(categories.router)
+app.include_router(import_profiles.router)
 app.include_router(upload.router)
 app.include_router(transactions.router)
 app.include_router(dashboard.router)

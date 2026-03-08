@@ -70,3 +70,10 @@ class BulkClassifyRequest(BaseModel):
 class BulkClassifyResponse(BaseModel):
     updated: int
     skipped: int
+
+
+class TransactionRawRead(BaseModel):
+    raw_row_json: str | None
+    raw_row_line: str | None
+
+    model_config = {"from_attributes": True}

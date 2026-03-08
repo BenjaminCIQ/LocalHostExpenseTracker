@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { Upload, CheckCircle, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { api, type Account, type ImportResult } from "@/lib/api";
+import { api, type Account, type ImportProfile, type ImportResult } from "@/lib/api";
 
 export default function UploadPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<number | null>(null);
+  const [profiles, setProfiles] = useState<ImportProfile[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -17,6 +19,10 @@ export default function UploadPage() {
       setAccounts(accs);
       if (accs.length > 0) setSelectedAccount(accs[0].id);
     });
+    api
+      .getImportProfiles()
+      .then((ps) => setProfiles(ps.filter((p) => p.enabled)))
+      .catch(() => setProfiles([]));
   }, []);
 
   const handleUpload = useCallback(
@@ -26,7 +32,7 @@ export default function UploadPage() {
       setError("");
       setResult(null);
       try {
-        const res = await api.uploadFile(file, selectedAccount);
+        const res = await api.uploadFile(file, selectedAccount, selectedProfile);
         setResult(res);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Upload failed");
@@ -34,7 +40,7 @@ export default function UploadPage() {
         setUploading(false);
       }
     },
-    [selectedAccount]
+    [selectedAccount, selectedProfile]
   );
 
   const onDrop = useCallback(
@@ -78,6 +84,47 @@ export default function UploadPage() {
                   {acc.name}
                 </Button>
               ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Import Profile</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {profiles.length === 0 ? (
+            <p className="text-muted-foreground">
+              No import profiles found. Upload will use automatic header detection.
+            </p>
+          ) : (
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-muted-foreground">Profile</label>
+              <select
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                value={selectedProfile ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSelectedProfile(v ? Number(v) : null);
+                }}
+              >
+                <option value="">Auto-detect</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  const ps = await api.getImportProfiles();
+                  setProfiles(ps.filter((p) => p.enabled));
+                }}
+              >
+                Refresh
+              </Button>
             </div>
           )}
         </CardContent>

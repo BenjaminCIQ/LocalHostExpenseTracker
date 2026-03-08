@@ -7,6 +7,7 @@ import MlStatusPage from "@/pages/MlStatusPage";
 import OverridesPage from "@/pages/OverridesPage";
 import RulesPage from "@/pages/RulesPage";
 import CategoriesPage from "@/pages/CategoriesPage";
+import ImportProfilesPage from "@/pages/ImportProfilesPage";
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/overrides" element={<OverridesPage />} />
         <Route path="/rules" element={<RulesPage />} />
         <Route path="/categories" element={<CategoriesPage />} />
+        <Route path="/import-profiles" element={<ImportProfilesPage />} />
       </Route>
     </Routes>
   );

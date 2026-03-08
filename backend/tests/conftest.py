@@ -21,6 +21,7 @@ from app.routers import (
     accounts,
     categories,
     dashboard,
+    import_profiles,
     ml,
     overrides,
     rules,
@@ -103,6 +104,7 @@ def test_app(db_session: Session, classifier: MLClassifier) -> FastAPI:
 
     app.include_router(accounts.router)
     app.include_router(categories.router)
+    app.include_router(import_profiles.router)
     app.include_router(upload.router)
     app.include_router(transactions.router)
     app.include_router(dashboard.router)

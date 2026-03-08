@@ -157,6 +157,24 @@ export interface SimilarTransactionCandidate {
   final_category_id: number | null;
 }
 
+export interface ImportProfile {
+  id: number;
+  name: string;
+  format: string;
+  delimiter: string | null;
+  date_column: string;
+  amount_column: string;
+  currency_column: string | null;
+  merchant_columns: string[];
+  description_columns: string[];
+  enabled: boolean;
+}
+
+export interface TransactionRaw {
+  raw_row_json: string | null;
+  raw_row_line: string | null;
+}
+
 export const api = {
   getAccounts: () => request<Account[]>("/accounts/"),
   createAccount: (data: Partial<Account>) =>
@@ -234,12 +252,20 @@ export const api = {
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<SimilarTransactionCandidate[]>(`/transactions/${id}/similar${suffix}`);
   },
+  getTransactionRaw: (id: number) => request<TransactionRaw>(`/transactions/${id}/raw`),
 
-  uploadFile: async (file: File, accountId: number): Promise<ImportResult> => {
+  uploadFile: async (
+    file: File,
+    accountId: number,
+    importProfileId?: number | null
+  ): Promise<ImportResult> => {
     const form = new FormData();
     form.append("file", file);
+    const qs = new URLSearchParams();
+    qs.set("account_id", String(accountId));
+    if (importProfileId) qs.set("import_profile_id", String(importProfileId));
     const res = await fetch(
-      `${BASE}/upload/?account_id=${accountId}`,
+      `${BASE}/upload/?${qs.toString()}`,
       { method: "POST", body: form }
     );
     if (!res.ok) {
@@ -248,6 +274,20 @@ export const api = {
     }
     return res.json();
   },
+
+  getImportProfiles: () => request<ImportProfile[]>("/import-profiles/"),
+  createImportProfile: (payload: Omit<ImportProfile, "id">) =>
+    request<ImportProfile>("/import-profiles/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateImportProfile: (id: number, payload: Partial<Omit<ImportProfile, "id">>) =>
+    request<ImportProfile>(`/import-profiles/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteImportProfile: (id: number) =>
+    request<{ deleted: boolean }>(`/import-profiles/${id}`, { method: "DELETE" }),
 
   getDashboard: (params?: { accountId?: number; month?: string }) => {
     const qs = new URLSearchParams();

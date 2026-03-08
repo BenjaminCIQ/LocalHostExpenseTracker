@@ -16,6 +16,9 @@ router = APIRouter(prefix="/api/upload", tags=["upload"])
 async def upload_bank_statement(
     file: UploadFile = File(...),
     account_id: int = Query(..., description="Account to import into"),
+    import_profile_id: int | None = Query(
+        None, description="Optional import profile to use for parsing"
+    ),
     db: Session = Depends(get_db),
     pipeline: ClassificationPipeline = Depends(get_pipeline),
 ):
@@ -36,7 +39,13 @@ async def upload_bank_statement(
             )
 
     try:
-        batch = ingest_file(db, content, file.filename or "unknown.csv", account_id)
+        batch = ingest_file(
+            db,
+            content,
+            file.filename or "unknown.csv",
+            account_id,
+            import_profile_id=import_profile_id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -32,6 +32,8 @@ class Transaction(Base):
     amount: Mapped[float] = mapped_column(Float)
     raw_description: Mapped[str] = mapped_column(Text)
     description: Mapped[str] = mapped_column(Text)
+    raw_row_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_row_line: Mapped[str | None] = mapped_column(Text, nullable=True)
     merchant: Mapped[str] = mapped_column(String(200), default="")
     currency: Mapped[str] = mapped_column(String(3), default="EUR")
     dedup_hash: Mapped[str] = mapped_column(String(64))

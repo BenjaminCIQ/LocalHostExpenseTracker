@@ -18,6 +18,7 @@ from app.schemas.transaction import (
     SimilarTransactionCandidate,
     TransactionClassify,
     TransactionListResponse,
+    TransactionRawRead,
     TransactionRead,
     TransactionUpdate,
 )
@@ -190,6 +191,13 @@ def get_similar_transactions(
         )
         for r in results
     ]
+
+@router.get("/{transaction_id}/raw", response_model=TransactionRawRead)
+def get_transaction_raw(transaction_id: int, db: Session = Depends(get_db)):
+    txn = db.get(Transaction, transaction_id)
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return TransactionRawRead(raw_row_json=txn.raw_row_json, raw_row_line=txn.raw_row_line)
 
 
 @router.get("/{transaction_id}", response_model=TransactionRead)

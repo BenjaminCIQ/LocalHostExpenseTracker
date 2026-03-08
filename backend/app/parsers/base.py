@@ -13,6 +13,8 @@ class ParsedTransaction:
     description: str
     merchant: str
     currency: str = "EUR"
+    raw_row_json: str | None = None
+    raw_row_line: str | None = None
 
 
 class BankParser(ABC):
