@@ -64,6 +64,13 @@ export interface TransactionListResponse {
   total_pages: number;
 }
 
+export interface TransactionBounds {
+  min_date: string | null;
+  max_date: string | null;
+  min_amount: number | null;
+  max_amount: number | null;
+}
+
 export interface ImportResult {
   batch_id: number;
   filename: string;
@@ -159,6 +166,13 @@ export const api = {
     page_size?: number;
     account_id?: number;
     classified?: boolean;
+    q?: string;
+    merchant?: string;
+    category_id?: number;
+    start_date?: string;
+    end_date?: string;
+    min_amount?: number;
+    max_amount?: number;
   }) => {
     const searchParams = new URLSearchParams();
     if (params.page) searchParams.set("page", String(params.page));
@@ -168,9 +182,24 @@ export const api = {
       searchParams.set("account_id", String(params.account_id));
     if (params.classified !== undefined)
       searchParams.set("classified", String(params.classified));
+    if (params.q) searchParams.set("q", params.q);
+    if (params.merchant) searchParams.set("merchant", params.merchant);
+    if (params.category_id) searchParams.set("category_id", String(params.category_id));
+    if (params.start_date) searchParams.set("start_date", params.start_date);
+    if (params.end_date) searchParams.set("end_date", params.end_date);
+    if (params.min_amount !== undefined) searchParams.set("min_amount", String(params.min_amount));
+    if (params.max_amount !== undefined) searchParams.set("max_amount", String(params.max_amount));
     return request<TransactionListResponse>(
       `/transactions/?${searchParams.toString()}`
     );
+  },
+
+  getTransactionBounds: (params?: { account_id?: number; classified?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (params?.account_id) qs.set("account_id", String(params.account_id));
+    if (params?.classified !== undefined) qs.set("classified", String(params.classified));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<TransactionBounds>(`/transactions/bounds${suffix}`);
   },
 
   classifyTransaction: (

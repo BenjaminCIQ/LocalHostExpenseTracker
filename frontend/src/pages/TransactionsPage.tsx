@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
@@ -204,16 +204,60 @@ export default function TransactionsPage() {
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<FilterMode>("all");
   const [error, setError] = useState("");
+  const [bounds, setBounds] = useState<{
+    min_date: string | null;
+    max_date: string | null;
+    min_amount: number | null;
+    max_amount: number | null;
+  } | null>(null);
+
+  const [searchText, setSearchText] = useState("");
+  const [merchantText, setMerchantText] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<number | "">("");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+  const [minAmount, setMinAmount] = useState<number | null>(null);
+  const [maxAmount, setMaxAmount] = useState<number | null>(null);
+  const hasAmountBounds =
+    bounds !== null && bounds.min_amount !== null && bounds.max_amount !== null;
 
   const load = useCallback(() => {
-    const params: { page: number; page_size: number; classified?: boolean } = {
+    const params: {
+      page: number;
+      page_size: number;
+      classified?: boolean;
+      q?: string;
+      merchant?: string;
+      category_id?: number;
+      start_date?: string;
+      end_date?: string;
+      min_amount?: number;
+      max_amount?: number;
+    } = {
       page,
       page_size: 50,
     };
     if (filter === "classified") params.classified = true;
     if (filter === "unclassified") params.classified = false;
+    if (searchText.trim()) params.q = searchText.trim();
+    if (merchantText.trim()) params.merchant = merchantText.trim();
+    if (categoryFilter) params.category_id = Number(categoryFilter);
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+    if (minAmount !== null) params.min_amount = minAmount;
+    if (maxAmount !== null) params.max_amount = maxAmount;
     api.getTransactions(params).then(setData).catch((e) => setError(e.message));
-  }, [page, filter]);
+  }, [
+    page,
+    filter,
+    searchText,
+    merchantText,
+    categoryFilter,
+    startDate,
+    endDate,
+    minAmount,
+    maxAmount,
+  ]);
 
   useEffect(() => {
     load();
@@ -222,6 +266,22 @@ export default function TransactionsPage() {
   useEffect(() => {
     api.getCategories().then(setCategories);
   }, []);
+
+  useEffect(() => {
+    const classified =
+      filter === "classified" ? true : filter === "unclassified" ? false : undefined;
+    api
+      .getTransactionBounds({ classified })
+      .then((b) => {
+        setBounds(b);
+        if (!startDate && b.min_date) setStartDate(b.min_date);
+        if (!endDate && b.max_date) setEndDate(b.max_date);
+        if (minAmount === null && b.min_amount !== null) setMinAmount(b.min_amount);
+        if (maxAmount === null && b.max_amount !== null) setMaxAmount(b.max_amount);
+      })
+      .catch(() => setBounds(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter]);
 
   const refreshCategories = async () => {
     const cats = await api.getCategories();
@@ -289,6 +349,155 @@ export default function TransactionsPage() {
           </span>
         )}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-6 items-end">
+            <div className="md:col-span-2">
+              <label className="text-sm text-muted-foreground">Search</label>
+              <input
+                className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                value={searchText}
+                onChange={(e) => {
+                  setSearchText(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="merchant/description…"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground">Store (merchant)</label>
+              <input
+                className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                value={merchantText}
+                onChange={(e) => {
+                  setMerchantText(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="REWE, Spotify…"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground">Category</label>
+              <Select
+                className="mt-1"
+                value={categoryFilter}
+                onChange={(e) => {
+                  setCategoryFilter(Number(e.target.value) || "");
+                  setPage(1);
+                }}
+              >
+                <option value="">All</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.parent_id ? "  " : ""}
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground">Start date</label>
+              <input
+                className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground">End date</label>
+              <input
+                className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+
+            <div className="md:col-span-6">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-muted-foreground">Amount range</label>
+                <span className="text-xs text-muted-foreground font-mono">
+                  {minAmount ?? "-"} → {maxAmount ?? "-"}
+                </span>
+              </div>
+              {hasAmountBounds ? (
+                <div className="grid gap-2 md:grid-cols-2 mt-2">
+                  <div>
+                    <input
+                      type="range"
+                      min={bounds!.min_amount!}
+                      max={bounds!.max_amount!}
+                      step={0.01}
+                      value={minAmount ?? bounds!.min_amount!}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setMinAmount(v);
+                        if (maxAmount !== null && v > maxAmount) setMaxAmount(v);
+                        setPage(1);
+                      }}
+                      className="w-full"
+                    />
+                    <div className="text-xs text-muted-foreground mt-1">Min</div>
+                  </div>
+                  <div>
+                    <input
+                      type="range"
+                      min={bounds!.min_amount!}
+                      max={bounds!.max_amount!}
+                      step={0.01}
+                      value={maxAmount ?? bounds!.max_amount!}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setMaxAmount(v);
+                        if (minAmount !== null && v < minAmount) setMinAmount(v);
+                        setPage(1);
+                      }}
+                      className="w-full"
+                    />
+                    <div className="text-xs text-muted-foreground mt-1">Max</div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Upload transactions to enable amount sliders.
+                </p>
+              )}
+            </div>
+
+            <div className="md:col-span-6 flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearchText("");
+                  setMerchantText("");
+                  setCategoryFilter("");
+                  setStartDate(bounds?.min_date ?? "");
+                  setEndDate(bounds?.max_date ?? "");
+                  setMinAmount(bounds?.min_amount ?? null);
+                  setMaxAmount(bounds?.max_amount ?? null);
+                  setPage(1);
+                }}
+              >
+                Reset
+              </Button>
+              <Button variant="outline" onClick={load}>
+                Apply
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="p-0">

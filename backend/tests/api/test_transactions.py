@@ -22,6 +22,29 @@ def test_filter_classified_unclassified(client, sample_csv: str):
     assert unclassified.json()["total"] == 3
 
 
+def test_transaction_bounds_endpoint(client, sample_csv: str):
+    _upload(client, sample_csv)
+    res = client.get("/api/transactions/bounds")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["min_date"] is not None
+    assert data["max_date"] is not None
+    assert data["min_amount"] is not None
+    assert data["max_amount"] is not None
+
+
+def test_search_and_merchant_filter(client, sample_csv: str):
+    _upload(client, sample_csv)
+    res = client.get("/api/transactions/?merchant=spotify")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] >= 1
+
+    res2 = client.get("/api/transactions/?q=gehalt")
+    assert res2.status_code == 200
+    assert res2.json()["total"] >= 1
+
+
 def test_classify_transaction_and_filters(client, sample_csv: str):
     _upload(client, sample_csv)
 
