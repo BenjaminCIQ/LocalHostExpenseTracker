@@ -31,6 +31,13 @@ export interface Category {
   children?: Category[];
 }
 
+export interface CategoryCreate {
+  name: string;
+  parent_id: number | null;
+  is_income: boolean;
+  sort_order: number;
+}
+
 export interface Transaction {
   id: number;
   account_id: number;
@@ -141,6 +148,11 @@ export const api = {
 
   getCategories: () => request<Category[]>("/categories/"),
   getCategoryTree: () => request<Category[]>("/categories/tree"),
+  createCategory: (data: CategoryCreate) =>
+    request<Category>("/categories/", { method: "POST", body: JSON.stringify(data) }),
+  updateCategory: (id: number, data: CategoryCreate) =>
+    request<Category>(`/categories/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteCategory: (id: number) => request<void>(`/categories/${id}`, { method: "DELETE" }),
 
   getTransactions: (params: {
     page?: number;

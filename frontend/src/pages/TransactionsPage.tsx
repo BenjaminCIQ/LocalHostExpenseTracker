@@ -28,14 +28,24 @@ function ClassifyCell({
   transaction,
   categories,
   onClassify,
+  onCategoryCreated,
+  onError,
 }: {
   transaction: Transaction;
   categories: Category[];
   onClassify: (txnId: number, categoryId: number, merchant?: string) => void;
+  onCategoryCreated: (newCategoryId: number) => Promise<void> | void;
+  onError: (message: string) => void;
 }) {
   const [selectedCat, setSelectedCat] = useState<number | "">(
     transaction.predicted_category_id ?? ""
   );
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newParentId, setNewParentId] = useState<number | "">("");
+  const [newIsIncome, setNewIsIncome] = useState(false);
+  const [newSortOrder, setNewSortOrder] = useState(0);
+  const [creating, setCreating] = useState(false);
 
   if (transaction.final_category_id) {
     const Icon = getCategoryIcon(transaction.final_category_name);
@@ -51,7 +61,7 @@ function ClassifyCell({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       {transaction.predicted_category_name && (
         <div className="flex items-center gap-1">
           <Sparkles className="h-3 w-3 text-primary" />
@@ -80,6 +90,13 @@ function ClassifyCell({
       </Select>
       <Button
         size="sm"
+        variant="outline"
+        onClick={() => setShowNewCategory((s) => !s)}
+      >
+        New
+      </Button>
+      <Button
+        size="sm"
         disabled={!selectedCat}
         onClick={() => {
           if (selectedCat) onClassify(transaction.id, selectedCat);
@@ -97,6 +114,85 @@ function ClassifyCell({
         >
           Accept
         </Button>
+      )}
+
+      {showNewCategory && (
+        <div className="w-full mt-2 p-3 rounded-md border border-border bg-background">
+          <div className="grid gap-2 md:grid-cols-5 items-end">
+            <div className="md:col-span-2">
+              <label className="text-xs text-muted-foreground">Name</label>
+              <input
+                className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. Pets"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Parent</label>
+              <Select
+                className="mt-1"
+                value={newParentId}
+                onChange={(e) => setNewParentId(Number(e.target.value) || "")}
+              >
+                <option value="">(none)</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.parent_id ? "  " : ""}
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Sort</label>
+              <input
+                className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                type="number"
+                value={newSortOrder}
+                onChange={(e) => setNewSortOrder(Number(e.target.value))}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={newIsIncome}
+                  onChange={(e) => setNewIsIncome(e.target.checked)}
+                />
+                Income
+              </label>
+              <Button
+                size="sm"
+                disabled={!newName.trim() || creating}
+                onClick={async () => {
+                  setCreating(true);
+                  try {
+                    const created = await api.createCategory({
+                      name: newName.trim(),
+                      parent_id: newParentId ? Number(newParentId) : null,
+                      is_income: newIsIncome,
+                      sort_order: newSortOrder,
+                    });
+                    await onCategoryCreated(created.id);
+                    setSelectedCat(created.id);
+                    setShowNewCategory(false);
+                    setNewName("");
+                    setNewParentId("");
+                    setNewIsIncome(false);
+                    setNewSortOrder(0);
+                  } catch (e) {
+                    onError(e instanceof Error ? e.message : "Failed to create category");
+                  } finally {
+                    setCreating(false);
+                  }
+                }}
+              >
+                Create
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -126,6 +222,11 @@ export default function TransactionsPage() {
   useEffect(() => {
     api.getCategories().then(setCategories);
   }, []);
+
+  const refreshCategories = async () => {
+    const cats = await api.getCategories();
+    setCategories(cats);
+  };
 
   const handleClassify = async (
     txnId: number,
@@ -227,6 +328,10 @@ export default function TransactionsPage() {
                         transaction={txn}
                         categories={categories}
                         onClassify={handleClassify}
+                        onCategoryCreated={async (_newId) => {
+                          await refreshCategories();
+                        }}
+                        onError={(msg) => setError(msg)}
                       />
                     </td>
                   </tr>

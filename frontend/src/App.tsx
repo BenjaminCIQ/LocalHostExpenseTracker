@@ -6,6 +6,7 @@ import UploadPage from "@/pages/UploadPage";
 import MlStatusPage from "@/pages/MlStatusPage";
 import OverridesPage from "@/pages/OverridesPage";
 import RulesPage from "@/pages/RulesPage";
+import CategoriesPage from "@/pages/CategoriesPage";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="/ml" element={<MlStatusPage />} />
         <Route path="/overrides" element={<OverridesPage />} />
         <Route path="/rules" element={<RulesPage />} />
+        <Route path="/categories" element={<CategoriesPage />} />
       </Route>
     </Routes>
   );

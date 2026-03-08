@@ -6,6 +6,7 @@ import {
   Brain,
   Shield,
   GitBranch,
+  Tags,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +15,7 @@ const NAV_ITEMS = [
   { to: "/transactions", label: "Transactions", icon: List },
   { to: "/upload", label: "Upload", icon: Upload },
   { to: "/ml", label: "ML Status", icon: Brain },
+  { to: "/categories", label: "Categories", icon: Tags },
   { to: "/overrides", label: "Overrides", icon: Shield },
   { to: "/rules", label: "Rules", icon: GitBranch },
 ];
