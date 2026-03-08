@@ -231,4 +231,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  getUncategorizedTitles: (limit = 20) =>
+    request<string[]>(`/suggestions/uncategorized-titles?limit=${limit}`),
 };

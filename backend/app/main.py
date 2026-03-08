@@ -21,6 +21,7 @@ from app.routers import (
     ml,
     overrides,
     rules,
+    suggestions,
     transactions,
     upload,
 )
@@ -73,6 +74,7 @@ app.include_router(dashboard.router)
 app.include_router(ml.router)
 app.include_router(overrides.router)
 app.include_router(rules.router)
+app.include_router(suggestions.router)
 
 
 @app.get("/api/health")

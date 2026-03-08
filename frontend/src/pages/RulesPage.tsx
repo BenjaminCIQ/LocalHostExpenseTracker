@@ -41,6 +41,7 @@ export default function RulesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [error, setError] = useState("");
+  const [nameSuggestions, setNameSuggestions] = useState<string[]>([]);
 
   // Create form
   const [name, setName] = useState("");
@@ -79,6 +80,13 @@ export default function RulesPage() {
 
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    api
+      .getUncategorizedTitles(30)
+      .then(setNameSuggestions)
+      .catch(() => setNameSuggestions([]));
   }, []);
 
   const addCondition = () => setConditions((c) => [...c, defaultCondition()]);
@@ -175,8 +183,14 @@ export default function RulesPage() {
                 className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                list="rule-name-suggestions"
                 placeholder='e.g. "Netflix subscription"'
               />
+              <datalist id="rule-name-suggestions">
+                {nameSuggestions.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
             </div>
             <div>
               <label className="text-sm text-muted-foreground">Category</label>
