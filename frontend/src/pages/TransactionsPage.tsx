@@ -3,7 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Sparkles,
+} from "lucide-react";
 import {
   api,
   type Transaction,
@@ -223,6 +229,15 @@ export default function TransactionsPage() {
   const hasAmountBounds =
     bounds !== null && bounds.min_amount !== null && bounds.max_amount !== null;
 
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem("expense_tracker_filters_open");
+      return v === null ? true : v === "true";
+    } catch {
+      return true;
+    }
+  });
+
   const [similarOpen, setSimilarOpen] = useState(false);
   const [similarSeedId, setSimilarSeedId] = useState<number | null>(null);
   const [similarCategoryId, setSimilarCategoryId] = useState<number | null>(null);
@@ -237,6 +252,14 @@ export default function TransactionsPage() {
   const [expandedTxnId, setExpandedTxnId] = useState<number | null>(null);
   const [expandedRaw, setExpandedRaw] = useState<TransactionRaw | null>(null);
   const [expandedLoading, setExpandedLoading] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("expense_tracker_filters_open", String(filtersOpen));
+    } catch {
+      // ignore
+    }
+  }, [filtersOpen]);
 
   const load = useCallback(() => {
     const params: {
@@ -349,6 +372,36 @@ export default function TransactionsPage() {
 
   if (error) return <p className="text-destructive">{error}</p>;
 
+  const resetFilters = () => {
+    setSearchText("");
+    setMerchantText("");
+    setCategoryFilter("");
+    setStartDate(bounds?.min_date ?? "");
+    setEndDate(bounds?.max_date ?? "");
+    setMinAmount(bounds?.min_amount ?? null);
+    setMaxAmount(bounds?.max_amount ?? null);
+    setPage(1);
+  };
+
+  const activeFilterCount = (() => {
+    let n = 0;
+    if (searchText.trim()) n += 1;
+    if (merchantText.trim()) n += 1;
+    if (categoryFilter) n += 1;
+
+    const defaultStart = bounds?.min_date ?? "";
+    const defaultEnd = bounds?.max_date ?? "";
+    if (startDate && startDate !== defaultStart) n += 1;
+    if (endDate && endDate !== defaultEnd) n += 1;
+
+    const minBound = bounds?.min_amount ?? null;
+    const maxBound = bounds?.max_amount ?? null;
+    if (minBound !== null && minAmount !== null && minAmount !== minBound) n += 1;
+    if (maxBound !== null && maxAmount !== null && maxAmount !== maxBound) n += 1;
+
+    return n;
+  })();
+
   const selectedCount = similarSelected.size;
   const selectedTotal = similarCandidates
     .filter((c) => similarSelected.has(c.transaction_id))
@@ -389,9 +442,41 @@ export default function TransactionsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Filters</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <CardTitle>Filters</CardTitle>
+              {activeFilterCount > 0 && !filtersOpen && (
+                <Badge variant="secondary">{activeFilterCount} active</Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {!filtersOpen && activeFilterCount > 0 && (
+                <Button variant="outline" size="sm" onClick={resetFilters}>
+                  Clear
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFiltersOpen((v) => !v)}
+              >
+                {filtersOpen ? (
+                  <>
+                    <ChevronUp className="h-4 w-4" />
+                    Hide
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-4 w-4" />
+                    Show
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
+        {filtersOpen && (
+          <CardContent>
           <div className="grid gap-3 md:grid-cols-6 items-end">
             <div className="md:col-span-2">
               <label className="text-sm text-muted-foreground">Search</label>
@@ -515,16 +600,7 @@ export default function TransactionsPage() {
             <div className="md:col-span-6 flex gap-2 justify-end">
               <Button
                 variant="outline"
-                onClick={() => {
-                  setSearchText("");
-                  setMerchantText("");
-                  setCategoryFilter("");
-                  setStartDate(bounds?.min_date ?? "");
-                  setEndDate(bounds?.max_date ?? "");
-                  setMinAmount(bounds?.min_amount ?? null);
-                  setMaxAmount(bounds?.max_amount ?? null);
-                  setPage(1);
-                }}
+                onClick={resetFilters}
               >
                 Reset
               </Button>
@@ -533,7 +609,8 @@ export default function TransactionsPage() {
               </Button>
             </div>
           </div>
-        </CardContent>
+          </CardContent>
+        )}
       </Card>
 
       <Card>
