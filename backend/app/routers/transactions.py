@@ -13,11 +13,15 @@ from app.models.category import Category
 from app.models.transaction import Transaction
 from app.pipeline.pipeline import ClassificationPipeline
 from app.schemas.transaction import (
+    BulkClassifyRequest,
+    BulkClassifyResponse,
+    SimilarTransactionCandidate,
     TransactionClassify,
     TransactionListResponse,
     TransactionRead,
     TransactionUpdate,
 )
+from app.services.similarity_service import find_similar_unclassified
 from app.services.classification_service import (
     classify_transaction_manual,
     run_pipeline_on_transaction,
@@ -158,6 +162,35 @@ def get_transaction_bounds(
         "max_amount": float(max_amount) if max_amount is not None else None,
     }
 
+@router.get("/{transaction_id}/similar", response_model=list[SimilarTransactionCandidate])
+def get_similar_transactions(
+    transaction_id: int,
+    limit: int = Query(25, ge=1, le=200),
+    min_score: int = Query(80, ge=0, le=100),
+    db: Session = Depends(get_db),
+):
+    try:
+        results = find_similar_unclassified(
+            db, transaction_id, limit=limit, min_score=min_score
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    return [
+        SimilarTransactionCandidate(
+            transaction_id=r.transaction_id,
+            date=r.date,
+            amount=r.amount,
+            merchant=r.merchant,
+            description=r.description,
+            score=r.score,
+            reason=r.reason,
+            predicted_category_id=r.predicted_category_id,
+            final_category_id=r.final_category_id,
+        )
+        for r in results
+    ]
+
 
 @router.get("/{transaction_id}", response_model=TransactionRead)
 def get_transaction(transaction_id: int, db: Session = Depends(get_db)):
@@ -186,6 +219,32 @@ def classify_transaction(
         db, txn, payload.category_id, payload.merchant, classifier
     )
     return _to_read(txn, db)
+
+@router.post("/bulk-classify", response_model=BulkClassifyResponse)
+def bulk_classify(
+    payload: BulkClassifyRequest,
+    db: Session = Depends(get_db),
+    classifier: MLClassifier = Depends(get_classifier),
+):
+    if not payload.transaction_ids:
+        return BulkClassifyResponse(updated=0, skipped=0)
+
+    updated = 0
+    skipped = 0
+    for txn_id in payload.transaction_ids:
+        txn = db.get(Transaction, txn_id)
+        if not txn:
+            skipped += 1
+            continue
+        if txn.final_category_id is not None:
+            skipped += 1
+            continue
+        classify_transaction_manual(
+            db, txn, payload.category_id, payload.merchant, classifier
+        )
+        updated += 1
+
+    return BulkClassifyResponse(updated=updated, skipped=skipped)
 
 
 @router.patch("/{transaction_id}", response_model=TransactionRead)

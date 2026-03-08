@@ -145,6 +145,18 @@ export interface Rule {
   conditions: RuleCondition[];
 }
 
+export interface SimilarTransactionCandidate {
+  transaction_id: number;
+  date: string;
+  amount: number;
+  merchant: string;
+  description: string;
+  score: number;
+  reason: string;
+  predicted_category_id: number | null;
+  final_category_id: number | null;
+}
+
 export const api = {
   getAccounts: () => request<Account[]>("/accounts/"),
   createAccount: (data: Partial<Account>) =>
@@ -210,6 +222,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  bulkClassify: (payload: { transaction_ids: number[]; category_id: number; merchant?: string }) =>
+    request<{ updated: number; skipped: number }>(`/transactions/bulk-classify`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getSimilarTransactions: (id: number, params?: { limit?: number; min_score?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.min_score !== undefined) qs.set("min_score", String(params.min_score));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<SimilarTransactionCandidate[]>(`/transactions/${id}/similar${suffix}`);
+  },
 
   uploadFile: async (file: File, accountId: number): Promise<ImportResult> => {
     const form = new FormData();

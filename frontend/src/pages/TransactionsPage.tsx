@@ -9,6 +9,7 @@ import {
   type Transaction,
   type TransactionListResponse,
   type Category,
+  type SimilarTransactionCandidate,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getCategoryIcon } from "@/lib/categoryIcons";
@@ -221,6 +222,17 @@ export default function TransactionsPage() {
   const hasAmountBounds =
     bounds !== null && bounds.min_amount !== null && bounds.max_amount !== null;
 
+  const [similarOpen, setSimilarOpen] = useState(false);
+  const [similarSeedId, setSimilarSeedId] = useState<number | null>(null);
+  const [similarCategoryId, setSimilarCategoryId] = useState<number | null>(null);
+  const [similarCandidates, setSimilarCandidates] = useState<
+    SimilarTransactionCandidate[]
+  >([]);
+  const [similarSelected, setSimilarSelected] = useState<Set<number>>(
+    new Set()
+  );
+  const [similarLoading, setSimilarLoading] = useState(false);
+
   const load = useCallback(() => {
     const params: {
       page: number;
@@ -299,6 +311,21 @@ export default function TransactionsPage() {
         merchant,
       });
       load();
+
+      setSimilarLoading(true);
+      try {
+        const candidates = await api.getSimilarTransactions(txnId, {
+          limit: 25,
+          min_score: 80,
+        });
+        setSimilarSeedId(txnId);
+        setSimilarCategoryId(categoryId);
+        setSimilarCandidates(candidates);
+        setSimilarSelected(new Set(candidates.map((c) => c.transaction_id)));
+        setSimilarOpen(candidates.length > 0);
+      } finally {
+        setSimilarLoading(false);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Classification failed");
     }
@@ -316,6 +343,11 @@ export default function TransactionsPage() {
   };
 
   if (error) return <p className="text-destructive">{error}</p>;
+
+  const selectedCount = similarSelected.size;
+  const selectedTotal = similarCandidates
+    .filter((c) => similarSelected.has(c.transaction_id))
+    .reduce((sum, c) => sum + c.amount, 0);
 
   return (
     <div className="space-y-4">
@@ -583,6 +615,166 @@ export default function TransactionsPage() {
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
+        </div>
+      )}
+
+      {similarOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-3xl mx-4">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold">Similar transactions</div>
+                <div className="text-sm text-muted-foreground">
+                  Suggested based on merchant + text similarity. Select transactions to bulk-apply the same category.
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSimilarOpen(false);
+                  setSimilarCandidates([]);
+                  setSimilarSelected(new Set());
+                }}
+              >
+                Close
+              </Button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">
+                  Selected: <span className="font-mono">{selectedCount}</span> · Total amount:{" "}
+                  <span className="font-mono">{formatCurrency(selectedTotal)}</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setSimilarSelected(
+                        new Set(similarCandidates.map((c) => c.transaction_id))
+                      )
+                    }
+                  >
+                    Select all
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setSimilarSelected(new Set())}
+                  >
+                    Select none
+                  </Button>
+                </div>
+              </div>
+
+              <div className="max-h-[55vh] overflow-auto border border-border rounded-md">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="p-2 text-left">Apply</th>
+                      <th className="p-2 text-left">Date</th>
+                      <th className="p-2 text-left">Merchant</th>
+                      <th className="p-2 text-left">Description</th>
+                      <th className="p-2 text-right">Amount</th>
+                      <th className="p-2 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {similarCandidates.map((c) => (
+                      <tr key={c.transaction_id} className="border-b">
+                        <td className="p-2">
+                          <input
+                            type="checkbox"
+                            checked={similarSelected.has(c.transaction_id)}
+                            onChange={(e) => {
+                              setSimilarSelected((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(c.transaction_id);
+                                else next.delete(c.transaction_id);
+                                return next;
+                              });
+                            }}
+                          />
+                        </td>
+                        <td className="p-2 whitespace-nowrap">{formatDate(c.date)}</td>
+                        <td className="p-2 whitespace-nowrap">{c.merchant}</td>
+                        <td className="p-2 max-w-xs truncate" title={c.description}>
+                          {c.description}
+                        </td>
+                        <td
+                          className={`p-2 text-right whitespace-nowrap font-mono ${
+                            c.amount >= 0 ? "text-success" : "text-destructive"
+                          }`}
+                        >
+                          {formatCurrency(c.amount)}
+                        </td>
+                        <td className="p-2 text-right font-mono">
+                          {c.score.toFixed(0)}
+                        </td>
+                      </tr>
+                    ))}
+                    {similarCandidates.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="p-6 text-center text-muted-foreground">
+                          No similar transactions found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  disabled={similarLoading}
+                  onClick={async () => {
+                    if (!similarSeedId || !similarCategoryId) return;
+                    setSimilarLoading(true);
+                    try {
+                      await api.getSimilarTransactions(similarSeedId, {
+                        limit: 25,
+                        min_score: 80,
+                      }).then((cands) => {
+                        setSimilarCandidates(cands);
+                        setSimilarSelected(
+                          new Set(cands.map((c) => c.transaction_id))
+                        );
+                      });
+                    } finally {
+                      setSimilarLoading(false);
+                    }
+                  }}
+                >
+                  Refresh
+                </Button>
+                <Button
+                  disabled={selectedCount === 0 || similarLoading || !similarCategoryId}
+                  onClick={async () => {
+                    if (!similarCategoryId) return;
+                    setSimilarLoading(true);
+                    try {
+                      await api.bulkClassify({
+                        transaction_ids: Array.from(similarSelected),
+                        category_id: similarCategoryId,
+                      });
+                      setSimilarOpen(false);
+                      setSimilarCandidates([]);
+                      setSimilarSelected(new Set());
+                      load();
+                    } catch (e) {
+                      setError(
+                        e instanceof Error ? e.message : "Bulk classify failed"
+                      );
+                    } finally {
+                      setSimilarLoading(false);
+                    }
+                  }}
+                >
+                  Apply to selected
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

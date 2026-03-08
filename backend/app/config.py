@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     ml_high_confidence: float = 0.85
     ml_medium_confidence: float = 0.5
 
+    soft_similarity_min_score: int = 85
+    soft_similarity_limit: int = 25
+
     class Config:
         env_prefix = "EXPENSE_TRACKER_"
 

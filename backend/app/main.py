@@ -14,6 +14,9 @@ from app.events.consumers.merchant_memory_updater import (
 from app.events.consumers.ml_dataset_updater import (
     handle_transaction_classified as ml_handler,
 )
+from app.events.consumers.soft_suggestion_updater import (
+    handle_transaction_classified as soft_similarity_handler,
+)
 from app.routers import (
     accounts,
     categories,
@@ -47,6 +50,7 @@ async def lifespan(_app: FastAPI):
 
     event_bus.subscribe("transaction_classified", ml_handler)
     event_bus.subscribe("transaction_classified", merchant_handler)
+    event_bus.subscribe("transaction_classified", soft_similarity_handler)
 
     logger.info("Expense Tracker backend started")
     yield

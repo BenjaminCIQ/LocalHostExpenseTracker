@@ -47,3 +47,26 @@ class ImportResult(BaseModel):
     transactions_imported: int
     duplicates_skipped: int
     account_id: int
+
+
+class SimilarTransactionCandidate(BaseModel):
+    transaction_id: int
+    date: str
+    amount: float
+    merchant: str
+    description: str
+    score: float
+    reason: str
+    predicted_category_id: int | None
+    final_category_id: int | None
+
+
+class BulkClassifyRequest(BaseModel):
+    transaction_ids: list[int]
+    category_id: int
+    merchant: str | None = None
+
+
+class BulkClassifyResponse(BaseModel):
+    updated: int
+    skipped: int
