@@ -84,6 +84,13 @@ export interface Dashboard {
   };
 }
 
+export interface MonthlyTotals {
+  month: string;
+  income: number;
+  expenses: number;
+  net: number;
+}
+
 export interface MlStatus {
   is_trained: boolean;
   training_samples: number;
@@ -180,6 +187,12 @@ export const api = {
   getDashboard: (accountId?: number) => {
     const params = accountId ? `?account_id=${accountId}` : "";
     return request<Dashboard>(`/dashboard/${params}`);
+  },
+  getMonthlyDashboard: (months = 6, accountId?: number) => {
+    const params = new URLSearchParams();
+    params.set("months", String(months));
+    if (accountId) params.set("account_id", String(accountId));
+    return request<{ months: MonthlyTotals[] }>(`/dashboard/monthly?${params.toString()}`);
   },
 
   getMlStatus: () => request<MlStatus>("/ml/status"),

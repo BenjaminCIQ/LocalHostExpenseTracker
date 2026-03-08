@@ -22,3 +22,14 @@ class DashboardResponse(BaseModel):
     net: float
     spending_by_category: list[CategorySpend]
     classification_stats: ClassificationStats
+
+
+class MonthlyTotals(BaseModel):
+    month: str  # YYYY-MM
+    income: float
+    expenses: float
+    net: float
+
+
+class MonthlyBreakdownResponse(BaseModel):
+    months: list[MonthlyTotals]

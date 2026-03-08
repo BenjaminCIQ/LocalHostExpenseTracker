@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { api, type Dashboard } from "@/lib/api";
+import { api, type Dashboard, type MonthlyTotals } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
 const COLORS = [
@@ -24,10 +24,12 @@ const COLORS = [
 
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [monthly, setMonthly] = useState<MonthlyTotals[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
     api.getDashboard().then(setData).catch((e) => setError(e.message));
+    api.getMonthlyDashboard(6).then((r) => setMonthly(r.months)).catch(() => {});
   }, []);
 
   if (error) return <p className="text-destructive">{error}</p>;
@@ -106,6 +108,28 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Monthly Net (last 6 months)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {monthly.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No monthly data yet.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={monthly}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis tickFormatter={(v) => formatCurrency(v)} />
+                  <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                  <Bar dataKey="income" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Spending by Category</CardTitle>
