@@ -184,9 +184,12 @@ export const api = {
     return res.json();
   },
 
-  getDashboard: (accountId?: number) => {
-    const params = accountId ? `?account_id=${accountId}` : "";
-    return request<Dashboard>(`/dashboard/${params}`);
+  getDashboard: (params?: { accountId?: number; month?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.accountId) qs.set("account_id", String(params.accountId));
+    if (params?.month) qs.set("month", params.month);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<Dashboard>(`/dashboard/${suffix}`);
   },
   getMonthlyDashboard: (months = 6, accountId?: number) => {
     const params = new URLSearchParams();

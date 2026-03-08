@@ -1,6 +1,7 @@
 from datetime import date
+import re
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -21,11 +22,23 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 @router.get("/", response_model=DashboardResponse)
 def get_dashboard(
     account_id: int | None = None,
+    month: str | None = Query(None, description="Optional YYYY-MM filter"),
     db: Session = Depends(get_db),
 ):
     query = db.query(Transaction)
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)
+    if month is not None:
+        if not re.fullmatch(r"\d{4}-\d{2}", month):
+            raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+        y, m = month.split("-")
+        year = int(y)
+        mon = int(m)
+        if mon < 1 or mon > 12:
+            raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+        start = date(year, mon, 1)
+        end = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
+        query = query.filter(Transaction.date >= start, Transaction.date < end)
 
     total_income = (
         query.filter(Transaction.amount > 0)

@@ -26,11 +26,22 @@ export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [monthly, setMonthly] = useState<MonthlyTotals[]>([]);
   const [error, setError] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
 
   useEffect(() => {
-    api.getDashboard().then(setData).catch((e) => setError(e.message));
-    api.getMonthlyDashboard(6).then((r) => setMonthly(r.months)).catch(() => {});
+    api
+      .getMonthlyDashboard(12)
+      .then((r) => setMonthly(r.months))
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const month = selectedMonth === "all" ? undefined : selectedMonth;
+    api
+      .getDashboard({ month })
+      .then(setData)
+      .catch((e) => setError(e.message));
+  }, [selectedMonth]);
 
   if (error) return <p className="text-destructive">{error}</p>;
   if (!data) return <p className="text-muted-foreground">Loading...</p>;
@@ -44,7 +55,24 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Dashboard</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Dashboard</h2>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">View</span>
+          <select
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+          >
+            <option value="all">All time</option>
+            {monthly.map((m) => (
+              <option key={m.month} value={m.month}>
+                {m.month}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
@@ -110,7 +138,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Monthly Net (last 6 months)</CardTitle>
+            <CardTitle>Monthly Income vs Expenses (last 12 months)</CardTitle>
           </CardHeader>
           <CardContent>
             {monthly.length === 0 ? (
