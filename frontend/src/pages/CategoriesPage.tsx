@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import CategorySelect from "@/components/category/CategorySelect";
 import { api, type Category, type CategoryCreate } from "@/lib/api";
-
-function catLabel(categories: Category[], id: number | null) {
-  if (id === null) return "(none)";
-  return categories.find((c) => c.id === id)?.name ?? `#${id}`;
-}
+import { buildCategoryTree, flattenCategoryTree } from "@/lib/categoryHierarchy";
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -21,6 +19,7 @@ export default function CategoriesPage() {
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editCat, setEditCat] = useState<CategoryCreate | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const load = async () => {
     try {
@@ -36,10 +35,48 @@ export default function CategoriesPage() {
     void load();
   }, []);
 
-  const sorted = useMemo(() => {
-    // Backend already returns categories in hierarchy order.
-    return categories;
+  const tree = useMemo(() => buildCategoryTree(categories), [categories]);
+  const allRows = useMemo(() => {
+    return flattenCategoryTree(tree, {
+      includePath: true,
+      expandedIds: new Set(categories.map((c) => c.id)),
+    });
+  }, [tree, categories]);
+  const visibleRows = useMemo(() => {
+    return flattenCategoryTree(tree, { includePath: true, expandedIds });
+  }, [tree, expandedIds]);
+  const pathById = useMemo(() => {
+    return new Map(allRows.map((row) => [row.id, row.path.join(" / ")]));
+  }, [allRows]);
+  const descendantsById = useMemo(() => {
+    const byParent = new Map<number, number[]>();
+    for (const category of categories) {
+      if (!category.parent_id) continue;
+      const list = byParent.get(category.parent_id) ?? [];
+      list.push(category.id);
+      byParent.set(category.parent_id, list);
+    }
+
+    const collect = (id: number): number[] => {
+      const direct = byParent.get(id) ?? [];
+      const all: number[] = [];
+      for (const childId of direct) {
+        all.push(childId, ...collect(childId));
+      }
+      return all;
+    };
+
+    const map = new Map<number, number[]>();
+    for (const category of categories) {
+      map.set(category.id, collect(category.id));
+    }
+    return map;
   }, [categories]);
+
+  useEffect(() => {
+    const withChildren = new Set(allRows.filter((row) => row.hasChildren).map((row) => row.id));
+    setExpandedIds(withChildren);
+  }, [allRows]);
 
   const handleCreate = async () => {
     if (!newCat.name.trim()) return;
@@ -113,24 +150,19 @@ export default function CategoriesPage() {
             </div>
             <div>
               <label className="text-sm text-muted-foreground">Parent</label>
-              <Select
+              <CategorySelect
                 className="mt-1"
+                categories={categories}
                 value={newCat.parent_id ?? ""}
-                onChange={(e) =>
+                placeholder="(none)"
+                mode="path"
+                onChange={(value) =>
                   setNewCat((s) => ({
                     ...s,
-                    parent_id: Number(e.target.value) || null,
+                    parent_id: typeof value === "number" ? value : null,
                   }))
                 }
-              >
-                <option value="">(none)</option>
-                {sorted.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.parent_id ? "  " : ""}
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
+              />
             </div>
             <div>
               <label className="text-sm text-muted-foreground">Order</label>
@@ -159,7 +191,25 @@ export default function CategoriesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Categories</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>All Categories</CardTitle>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setExpandedIds(
+                    new Set(allRows.filter((row) => row.hasChildren).map((row) => row.id))
+                  )
+                }
+              >
+                Expand all
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setExpandedIds(new Set())}>
+                Collapse all
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -173,50 +223,74 @@ export default function CategoriesPage() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((c) => {
+                {visibleRows.map((row) => {
+                  const c = categories.find((cat) => cat.id === row.id)!;
                   const isEditing = editingId === c.id && editCat;
                   return (
                     <tr key={c.id} className="border-b hover:bg-muted/30">
                       <td className="p-3">
-                        {isEditing ? (
-                          <input
-                            className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
-                            value={editCat!.name}
-                            onChange={(e) =>
-                              setEditCat((s) => (s ? { ...s, name: e.target.value } : s))
-                            }
-                          />
-                        ) : (
-                          <span>{c.name}</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <span style={{ marginLeft: `${row.depth * 18}px` }}>
+                            {row.hasChildren ? (
+                              <button
+                                type="button"
+                                className="rounded p-0.5 hover:bg-muted"
+                                onClick={() =>
+                                  setExpandedIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(c.id)) next.delete(c.id);
+                                    else next.add(c.id);
+                                    return next;
+                                  })
+                                }
+                              >
+                                {expandedIds.has(c.id) ? (
+                                  <ChevronDown className="h-4 w-4" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4" />
+                                )}
+                              </button>
+                            ) : (
+                              <span className="inline-block w-5" />
+                            )}
+                          </span>
+                          {isEditing ? (
+                            <input
+                              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                              value={editCat!.name}
+                              onChange={(e) =>
+                                setEditCat((s) => (s ? { ...s, name: e.target.value } : s))
+                              }
+                            />
+                          ) : (
+                            <span className="font-medium">{c.name}</span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3">
                         {isEditing ? (
-                          <Select
+                          <CategorySelect
+                            categories={categories}
                             value={editCat!.parent_id ?? ""}
-                            onChange={(e) =>
+                            placeholder="(none)"
+                            mode="path"
+                            excludeIds={[c.id, ...(descendantsById.get(c.id) ?? [])]}
+                            onChange={(value) =>
                               setEditCat((s) =>
                                 s
                                   ? {
                                       ...s,
-                                      parent_id: Number(e.target.value) || null,
+                                      parent_id:
+                                        typeof value === "number" ? value : null,
                                     }
                                   : s
                               )
                             }
-                          >
-                            <option value="">(none)</option>
-                            {sorted
-                              .filter((x) => x.id !== c.id)
-                              .map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.parent_id ? "  " : ""}
-                                  {p.name}
-                                </option>
-                              ))}
-                          </Select>
+                          />
                         ) : (
-                          <span className="text-muted-foreground">{catLabel(sorted, c.parent_id)}</span>
+                          <span className="text-muted-foreground">
+                            {c.parent_id ? pathById.get(c.parent_id) ?? `#${c.parent_id}` : "(none)"}
+                          </span>
                         )}
                       </td>
                       <td className="p-3">
@@ -233,8 +307,10 @@ export default function CategoriesPage() {
                             />
                             Income
                           </label>
+                        ) : c.is_income ? (
+                          <Badge variant="success">Income</Badge>
                         ) : (
-                          <span>{c.is_income ? "Income" : "Expense"}</span>
+                          <Badge variant="secondary">Expense</Badge>
                         )}
                       </td>
                       <td className="p-3">
@@ -271,7 +347,7 @@ export default function CategoriesPage() {
                     </tr>
                   );
                 })}
-                {sorted.length === 0 && (
+                {visibleRows.length === 0 && (
                   <tr>
                     <td colSpan={4} className="p-8 text-center text-muted-foreground">
                       No categories found.

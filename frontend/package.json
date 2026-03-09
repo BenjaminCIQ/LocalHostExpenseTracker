@@ -13,6 +13,8 @@
     "vite": "^7.3.1"
   },
   "dependencies": {
+    "@nivo/calendar": "^0.99.0",
+    "@nivo/sankey": "^0.99.0",
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-table": "^8.21.3",
     "@types/react": "^19.2.14",
@@ -20,9 +22,11 @@
     "@vitejs/plugin-react": "^5.1.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
     "lucide-react": "^0.577.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-grid-layout": "^2.2.2",
     "react-router-dom": "^7.13.1",
     "recharts": "^3.8.0",
     "tailwind-merge": "^3.5.0",

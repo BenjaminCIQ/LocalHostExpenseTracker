@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     soft_similarity_min_score: int = 85
     soft_similarity_limit: int = 25
 
+    transfer_amount_tolerance: float = 0.0
+    transfer_date_window_days: int = 3
+    transfer_high_confidence_threshold: float = 0.9
+    transfer_review_confidence_threshold: float = 0.75
+
     class Config:
         env_prefix = "EXPENSE_TRACKER_"
 

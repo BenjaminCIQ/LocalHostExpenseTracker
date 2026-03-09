@@ -3,7 +3,7 @@ import math
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,6 +11,7 @@ from app.deps import get_classifier, get_pipeline
 from app.ml.classifier import MLClassifier
 from app.models.category import Category
 from app.models.transaction import Transaction
+from app.models.trip import Trip, TripTransactionOverride
 from app.pipeline.pipeline import ClassificationPipeline
 from app.schemas.transaction import (
     BulkUpdateFieldsRequest,
@@ -19,6 +20,11 @@ from app.schemas.transaction import (
     BulkClassifyResponse,
     SimilarTransactionCandidate,
     SuggestFieldUpdateCandidate,
+    TransferAutoLinkResponse,
+    TransferCandidate,
+    TransferLinkRequest,
+    TransferLinkResponse,
+    TransferUnlinkRequest,
     TransactionManualCreate,
     TransactionClassify,
     TransactionListResponse,
@@ -26,7 +32,11 @@ from app.schemas.transaction import (
     TransactionRead,
     TransactionUpdate,
 )
-from app.services.similarity_service import find_similar, find_similar_unclassified
+from app.services.similarity_service import (
+    find_similar,
+    find_similar_unclassified,
+    learn_merchant_alias,
+)
 from app.services.classification_service import (
     classify_transaction_manual,
     run_pipeline_on_transaction,
@@ -34,6 +44,12 @@ from app.services.classification_service import (
 )
 from app.services.ingestion_service import compute_dedup_hash
 from app.models.account import Account
+from app.services.transfer_reconciliation_service import (
+    auto_link_high_confidence,
+    find_transfer_candidates,
+    link_transfer_pair,
+    unlink_transfer,
+)
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -62,6 +78,12 @@ def _to_read(txn: Transaction, db: Session) -> TransactionRead:
         final_category_name=final_name,
         classification_source=txn.classification_source,
         confidence=txn.confidence,
+        transaction_kind=txn.transaction_kind or ("income" if txn.amount > 0 else ("expense" if txn.amount < 0 else "adjustment")),
+        transfer_group_id=txn.transfer_group_id,
+        transfer_linked_transaction_id=txn.transfer_linked_transaction_id,
+        transfer_confidence=txn.transfer_confidence,
+        transfer_match_source=txn.transfer_match_source,
+        is_internal_transfer=txn.is_internal_transfer,
         created_at=txn.created_at,
     )
 
@@ -76,10 +98,16 @@ def list_transactions(
     q: str | None = Query(None, description="Free-text search (merchant/description/raw_description)"),
     merchant: str | None = Query(None, description="Merchant/store contains"),
     category_id: int | None = Query(None, description="Matches final or predicted category"),
+    category_ids: str | None = Query(None, description="Comma separated category ids"),
     start_date: date | None = Query(None, description="YYYY-MM-DD inclusive"),
     end_date: date | None = Query(None, description="YYYY-MM-DD inclusive"),
+    trip_id: int | None = Query(None, description="Trip id filter with include/exclude overrides"),
     min_amount: float | None = None,
     max_amount: float | None = None,
+    transaction_kind: str | None = Query(None, pattern="^(income|expense|transfer|adjustment)$"),
+    include_transfers: bool = True,
+    sort_by: str = Query("date", pattern="^(date|amount|merchant|description|category)$"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
     query = db.query(Transaction)
@@ -101,6 +129,23 @@ def list_transactions(
                 Transaction.predicted_category_id == category_id,
             )
         )
+    elif category_ids:
+        ids: list[int] = []
+        for raw in category_ids.split(","):
+            val = raw.strip()
+            if not val:
+                continue
+            try:
+                ids.append(int(val))
+            except ValueError:
+                continue
+        if ids:
+            query = query.filter(
+                or_(
+                    Transaction.final_category_id.in_(ids),
+                    Transaction.predicted_category_id.in_(ids),
+                )
+            )
 
     def _contains(col, text: str):
         like = f"%{text.lower()}%"
@@ -122,15 +167,63 @@ def list_transactions(
         query = query.filter(Transaction.date >= start_date)
     if end_date:
         query = query.filter(Transaction.date <= end_date)
+    if trip_id is not None:
+        trip = db.get(Trip, trip_id)
+        if not trip:
+            raise HTTPException(status_code=404, detail="Trip not found")
+        include_override = (
+            db.query(TripTransactionOverride.id)
+            .filter(
+                TripTransactionOverride.trip_id == trip_id,
+                TripTransactionOverride.transaction_id == Transaction.id,
+                TripTransactionOverride.include.is_(True),
+            )
+            .exists()
+        )
+        exclude_override = (
+            db.query(TripTransactionOverride.id)
+            .filter(
+                TripTransactionOverride.trip_id == trip_id,
+                TripTransactionOverride.transaction_id == Transaction.id,
+                TripTransactionOverride.include.is_(False),
+            )
+            .exists()
+        )
+        auto_in_window = and_(
+            Transaction.date >= trip.start_date,
+            Transaction.date <= trip.end_date,
+        )
+        query = query.filter(
+            or_(
+                include_override,
+                and_(auto_in_window, ~exclude_override),
+            )
+        )
 
     if min_amount is not None:
         query = query.filter(Transaction.amount >= min_amount)
     if max_amount is not None:
         query = query.filter(Transaction.amount <= max_amount)
+    if transaction_kind:
+        query = query.filter(Transaction.transaction_kind == transaction_kind)
+    if not include_transfers:
+        query = query.filter(Transaction.is_internal_transfer.is_(False))
 
     total = query.count()
+    sort_column = {
+        "date": Transaction.date,
+        "amount": Transaction.amount,
+        "merchant": Transaction.merchant,
+        "description": Transaction.description,
+    }.get(sort_by, Transaction.date)
+
+    if sort_by == "category":
+        query = query.outerjoin(Category, Transaction.final_category_id == Category.id)
+        sort_column = Category.name
+
+    order_expr = sort_column.asc() if sort_dir == "asc" else sort_column.desc()
     items = (
-        query.order_by(Transaction.date.desc(), Transaction.id.desc())
+        query.order_by(order_expr, Transaction.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -143,6 +236,80 @@ def list_transactions(
         page_size=page_size,
         total_pages=math.ceil(total / page_size) if total else 0,
     )
+
+
+@router.get("/transfer-candidates", response_model=list[TransferCandidate])
+def get_transfer_candidates(
+    limit: int = Query(100, ge=1, le=500),
+    account_id: int | None = None,
+    person_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    person_account_ids: list[int] | None = None
+    if person_id is not None:
+        person_account_ids = [
+            a.id
+            for a in db.query(Account).filter(Account.person_id == person_id).all()
+        ]
+    candidates = find_transfer_candidates(
+        db, limit=limit, account_id=account_id, person_account_ids=person_account_ids
+    )
+    return [
+        TransferCandidate(
+            transaction_id=item.transaction_id,
+            candidate_id=item.candidate_id,
+            transaction_date=item.transaction_date,
+            candidate_date=item.candidate_date,
+            transaction_amount=item.transaction_amount,
+            candidate_amount=item.candidate_amount,
+            transaction_account_id=item.transaction_account_id,
+            candidate_account_id=item.candidate_account_id,
+            transaction_currency=item.transaction_currency,
+            candidate_currency=item.candidate_currency,
+            score=item.score,
+            reason=item.reason,
+        )
+        for item in candidates
+    ]
+
+
+@router.post("/transfers/auto-link", response_model=TransferAutoLinkResponse)
+def auto_link_transfers(
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    linked, reviewed, skipped = auto_link_high_confidence(db, limit=limit)
+    return TransferAutoLinkResponse(linked=linked, reviewed=reviewed, skipped=skipped)
+
+
+@router.post("/transfers/link", response_model=TransferLinkResponse)
+def link_transfer(
+    payload: TransferLinkRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        group_id = link_transfer_pair(
+            db,
+            transaction_id=payload.transaction_id,
+            candidate_id=payload.candidate_id,
+            confidence=payload.confidence,
+            source="manual",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return TransferLinkResponse(linked=True, transfer_group_id=group_id)
+
+
+@router.post("/transfers/unlink", response_model=TransferLinkResponse)
+def unlink_transfer_endpoint(
+    payload: TransferUnlinkRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        unlinked = unlink_transfer(db, payload.transaction_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return TransferLinkResponse(linked=unlinked, transfer_group_id=None)
 
 
 @router.get("/bounds")
@@ -244,6 +411,9 @@ def suggest_field_updates(
             transaction_id=t.id,
             score=float(next(s.score for s in similar if s.transaction_id == t.id)),
             reason=str(next(s.reason for s in similar if s.transaction_id == t.id)),
+            reasons=list(next(s.reasons for s in similar if s.transaction_id == t.id)),
+            matched_fields=list(next(s.matched_fields for s in similar if s.transaction_id == t.id)),
+            is_classified=bool(next(s.is_classified for s in similar if s.transaction_id == t.id)),
             current_merchant=t.merchant,
             current_description=t.description,
             current_raw_description=t.raw_description,
@@ -338,6 +508,7 @@ def create_manual_transaction(
         dedup_hash=dedup,
         raw_row_json=None,
         raw_row_line=None,
+        transaction_kind="income" if payload.amount > 0 else ("expense" if payload.amount < 0 else "adjustment"),
     )
     db.add(txn)
     db.commit()
@@ -354,7 +525,7 @@ def bulk_update_fields(
     pipeline: ClassificationPipeline = Depends(get_pipeline),
 ):
     if not payload.transaction_ids:
-        return BulkUpdateFieldsResponse(updated=0, skipped=0)
+        return BulkUpdateFieldsResponse(updated=0, skipped=0, skipped_reasons={})
     if (
         payload.merchant is None
         and payload.description is None
@@ -363,22 +534,33 @@ def bulk_update_fields(
         raise HTTPException(status_code=400, detail="No fields to update")
 
     updated = 0
+    updated_classified = 0
     skipped = 0
+    skipped_reasons: dict[str, int] = {}
     for txn_id in payload.transaction_ids:
         txn = db.get(Transaction, txn_id)
         if not txn:
             skipped += 1
+            skipped_reasons["not_found"] = skipped_reasons.get("not_found", 0) + 1
             continue
-        if txn.final_category_id is not None:
+        if txn.final_category_id is not None and not payload.allow_classified:
             skipped += 1
+            skipped_reasons["classified_locked"] = (
+                skipped_reasons.get("classified_locked", 0) + 1
+            )
             continue
 
+        old_merchant = txn.merchant
         if payload.merchant is not None:
             txn.merchant = payload.merchant
         if payload.description is not None:
             txn.description = payload.description
         if payload.raw_description is not None:
             txn.raw_description = payload.raw_description
+        if payload.allow_classified and txn.final_category_id is not None:
+            updated_classified += 1
+        if payload.merchant is not None and old_merchant and txn.merchant:
+            learn_merchant_alias(db, old_merchant, txn.merchant)
         db.add(txn)
         updated += 1
 
@@ -390,7 +572,12 @@ def bulk_update_fields(
             if txn and txn.final_category_id is None:
                 run_pipeline_on_transaction(db, txn, pipeline)
 
-    return BulkUpdateFieldsResponse(updated=updated, skipped=skipped)
+    return BulkUpdateFieldsResponse(
+        updated=updated,
+        skipped=skipped,
+        skipped_reasons=skipped_reasons,
+        updated_classified=updated_classified,
+    )
 
 
 @router.patch("/{transaction_id}", response_model=TransactionRead)
@@ -403,6 +590,7 @@ def update_transaction(
     txn = db.get(Transaction, transaction_id)
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    old_merchant = txn.merchant
     if payload.merchant is not None:
         txn.merchant = payload.merchant
     if payload.description is not None:
@@ -413,8 +601,24 @@ def update_transaction(
         txn.date = payload.date
     if payload.amount is not None:
         txn.amount = payload.amount
+        if payload.transaction_kind is None and not txn.is_internal_transfer:
+            txn.transaction_kind = "income" if txn.amount > 0 else ("expense" if txn.amount < 0 else "adjustment")
     if payload.currency is not None:
         txn.currency = payload.currency
+    if payload.transaction_kind is not None:
+        txn.transaction_kind = payload.transaction_kind
+    if payload.transfer_group_id is not None:
+        txn.transfer_group_id = payload.transfer_group_id
+    if payload.transfer_linked_transaction_id is not None:
+        txn.transfer_linked_transaction_id = payload.transfer_linked_transaction_id
+    if payload.transfer_confidence is not None:
+        txn.transfer_confidence = payload.transfer_confidence
+    if payload.transfer_match_source is not None:
+        txn.transfer_match_source = payload.transfer_match_source
+    if payload.is_internal_transfer is not None:
+        txn.is_internal_transfer = payload.is_internal_transfer
+    if payload.merchant is not None and old_merchant and txn.merchant:
+        learn_merchant_alias(db, old_merchant, txn.merchant)
     db.commit()
     db.refresh(txn)
 

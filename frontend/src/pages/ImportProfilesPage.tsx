@@ -14,7 +14,7 @@ function joinCols(cols: string[]): string {
   return cols.join(", ");
 }
 
-export default function ImportProfilesPage() {
+export default function ImportProfilesPage({ embedded = false }: { embedded?: boolean }) {
   const [profiles, setProfiles] = useState<ImportProfile[]>([]);
   const [error, setError] = useState("");
 
@@ -93,7 +93,7 @@ export default function ImportProfilesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Import Profiles</h2>
+        {!embedded && <h2 className="text-2xl font-bold">Import Profiles</h2>}
         <Button variant="outline" onClick={() => load().catch(() => {})}>
           Refresh
         </Button>

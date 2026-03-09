@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Float,
@@ -48,6 +49,14 @@ class Transaction(Base):
         String(50), nullable=True
     )
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    transaction_kind: Mapped[str] = mapped_column(String(20), default="expense")
+    transfer_group_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    transfer_linked_transaction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transactions.id"), nullable=True
+    )
+    transfer_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    transfer_match_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_internal_transfer: Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow

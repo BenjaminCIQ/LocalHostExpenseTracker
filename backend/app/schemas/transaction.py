@@ -1,6 +1,6 @@
 from datetime import date as dt_date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TransactionRead(BaseModel):
@@ -18,6 +18,12 @@ class TransactionRead(BaseModel):
     final_category_name: str | None = None
     classification_source: str | None
     confidence: float | None
+    transaction_kind: str
+    transfer_group_id: str | None = None
+    transfer_linked_transaction_id: int | None = None
+    transfer_confidence: float | None = None
+    transfer_match_source: str | None = None
+    is_internal_transfer: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -35,6 +41,12 @@ class TransactionUpdate(BaseModel):
     date: dt_date | None = None
     amount: float | None = None
     currency: str | None = None
+    transaction_kind: str | None = None
+    transfer_group_id: str | None = None
+    transfer_linked_transaction_id: int | None = None
+    transfer_confidence: float | None = None
+    transfer_match_source: str | None = None
+    is_internal_transfer: bool | None = None
 
 
 class TransactionManualCreate(BaseModel):
@@ -98,21 +110,63 @@ class BulkUpdateFieldsRequest(BaseModel):
     merchant: str | None = None
     description: str | None = None
     raw_description: str | None = None
+    allow_classified: bool = False
     re_predict: bool = True
 
 
 class BulkUpdateFieldsResponse(BaseModel):
     updated: int
     skipped: int
+    skipped_reasons: dict[str, int] = Field(default_factory=dict)
+    updated_classified: int = 0
 
 
 class SuggestFieldUpdateCandidate(BaseModel):
     transaction_id: int
     score: float
     reason: str
+    reasons: list[str] = Field(default_factory=list)
+    matched_fields: list[str] = Field(default_factory=list)
+    is_classified: bool = False
     current_merchant: str
     current_description: str
     current_raw_description: str
     suggested_merchant: str | None
     suggested_description: str | None
     suggested_raw_description: str | None
+
+
+class TransferCandidate(BaseModel):
+    transaction_id: int
+    candidate_id: int
+    transaction_date: str
+    candidate_date: str
+    transaction_amount: float
+    candidate_amount: float
+    transaction_account_id: int
+    candidate_account_id: int
+    transaction_currency: str
+    candidate_currency: str
+    score: float
+    reason: str
+
+
+class TransferAutoLinkResponse(BaseModel):
+    linked: int
+    reviewed: int
+    skipped: int
+
+
+class TransferLinkRequest(BaseModel):
+    transaction_id: int
+    candidate_id: int
+    confidence: float | None = None
+
+
+class TransferUnlinkRequest(BaseModel):
+    transaction_id: int
+
+
+class TransferLinkResponse(BaseModel):
+    linked: bool
+    transfer_group_id: str | None

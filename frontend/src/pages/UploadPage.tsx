@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { api, type Account, type ImportProfile, type ImportResult } from "@/lib/api";
 
-export default function UploadPage() {
+export default function UploadPage({ embedded = false }: { embedded?: boolean }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<number | null>(null);
   const [profiles, setProfiles] = useState<ImportProfile[]>([]);
@@ -64,7 +64,7 @@ export default function UploadPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Upload Bank Statement</h2>
+      {!embedded && <h2 className="text-2xl font-bold">Upload Bank Statement</h2>}
 
       <Card>
         <CardHeader>

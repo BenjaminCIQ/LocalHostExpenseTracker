@@ -1,6 +1,10 @@
 from datetime import date
 
-from app.services.similarity_service import find_similar_unclassified
+from app.services.similarity_service import (
+    find_similar,
+    find_similar_unclassified,
+    learn_merchant_alias,
+)
 from app.models.transaction import Transaction
 
 
@@ -81,4 +85,94 @@ def test_similarity_service_operator_pool_matches_raw_text(seeded_db):
     results = find_similar_unclassified(seeded_db, seed.id, limit=10, min_score=50)
     ids = [r.transaction_id for r in results]
     assert candidate.id in ids
+
+
+def test_similarity_service_matches_merchant_variants(seeded_db):
+    seed = Transaction(
+        account_id=1,
+        import_batch_id=None,
+        date=date(2026, 3, 1),
+        amount=-24.5,
+        raw_description="KLINIKUM IM FRIEDRICHSHAIN KARTENZAHLUNG",
+        description="KLINIKUM IM FRIEDRICHSHAIN KARTENZAHLUNG",
+        merchant="KLINIKUM IM FRIEDRICHSHAIN",
+        currency="EUR",
+        dedup_hash="unit-test-merchant-variant-seed",
+        final_category_id=1,
+        classification_source="human",
+        confidence=1.0,
+    )
+
+    candidate = Transaction(
+        account_id=1,
+        import_batch_id=None,
+        date=date(2026, 3, 3),
+        amount=-24.49,
+        raw_description="KLINIKUM IM FRIEDRICHSHAIN KARTENZAHLUNG",
+        description="KLINIKUM IM FRIEDRICHSHAIN KARTENZAHLUNG",
+        merchant="KLINIKUM FRIEDRICHSHAIN",
+        currency="EUR",
+        dedup_hash="unit-test-merchant-variant-candidate",
+        predicted_category_id=None,
+        final_category_id=None,
+        classification_source=None,
+        confidence=None,
+    )
+    seeded_db.add_all([seed, candidate])
+    seeded_db.commit()
+
+    results = find_similar_unclassified(seeded_db, seed.id, limit=10, min_score=55)
+    ids = [r.transaction_id for r in results]
+    assert candidate.id in ids
+
+
+def test_similarity_service_uses_learned_alias(seeded_db):
+    seed = Transaction(
+        account_id=1,
+        import_batch_id=None,
+        date=date(2026, 4, 1),
+        amount=-18.0,
+        raw_description="CARD PAYMENT VICTOR GOLLANCZ",
+        description="CARD PAYMENT VICTOR GOLLANCZ",
+        merchant="VICTOR GOLLANCZ VOLKSHOCHSCHULE",
+        currency="EUR",
+        dedup_hash="unit-test-alias-seed",
+        final_category_id=1,
+        classification_source="human",
+        confidence=1.0,
+    )
+    candidate = Transaction(
+        account_id=1,
+        import_batch_id=None,
+        date=date(2026, 4, 4),
+        amount=-18.02,
+        raw_description="CARD PAYMENT VHS VICTOR GOLLANCZ SCHULE",
+        description="CARD PAYMENT VHS VICTOR GOLLANCZ SCHULE",
+        merchant="VHS VICTOR GOLLANCZ",
+        currency="EUR",
+        dedup_hash="unit-test-alias-candidate",
+        predicted_category_id=None,
+        final_category_id=None,
+        classification_source=None,
+        confidence=None,
+    )
+    seeded_db.add_all([seed, candidate])
+    seeded_db.commit()
+    learn_merchant_alias(
+        seeded_db,
+        "VHS VICTOR GOLLANCZ",
+        "VICTOR GOLLANCZ VOLKSHOCHSCHULE",
+    )
+    seeded_db.commit()
+
+    results = find_similar(
+        seeded_db,
+        seed.id,
+        limit=10,
+        min_score=50,
+        only_unclassified=False,
+    )
+    matched = next((r for r in results if r.transaction_id == candidate.id), None)
+    assert matched is not None
+    assert "canonical_merchant_match" in matched.reasons
 

@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import CategorySelect from "@/components/category/CategorySelect";
 import { api, type Category, type UserOverride } from "@/lib/api";
 
 function categoryName(categories: Category[], id: number): string {
   return categories.find((c) => c.id === id)?.name ?? `Category ${id}`;
 }
 
-export default function OverridesPage() {
+export default function OverridesPage({ embedded = false }: { embedded?: boolean }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [overrides, setOverrides] = useState<UserOverride[]>([]);
   const [error, setError] = useState("");
@@ -103,7 +104,7 @@ export default function OverridesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">User Overrides</h2>
+        {!embedded && <h2 className="text-2xl font-bold">User Overrides</h2>}
       </div>
 
       {error && <p className="text-destructive">{error}</p>}
@@ -125,22 +126,16 @@ export default function OverridesPage() {
             </div>
             <div>
               <label className="text-sm text-muted-foreground">Category</label>
-              <Select
+              <CategorySelect
                 className="mt-1"
+                categories={categories}
                 value={newCategoryId}
-                onChange={(e) => setNewCategoryId(Number(e.target.value) || "")}
-              >
-                <option value="">Select...</option>
-                {categories
-                  .slice()
-                  .sort((a, b) => a.sort_order - b.sort_order)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.parent_id ? "  " : ""}
-                      {c.name}
-                    </option>
-                  ))}
-              </Select>
+                placeholder="Select..."
+                mode="path"
+                onChange={(value) =>
+                  setNewCategoryId(typeof value === "number" ? value : "")
+                }
+              />
             </div>
             <div>
               <label className="text-sm text-muted-foreground">Priority</label>

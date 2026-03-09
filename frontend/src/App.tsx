@@ -1,30 +1,34 @@
 import { Routes, Route } from "react-router-dom";
 import Layout from "@/components/Layout";
 import DashboardPage from "@/pages/DashboardPage";
+import AnalyticsPage from "@/pages/AnalyticsPage";
+import BudgetPage from "@/pages/BudgetPage";
 import TransactionsPage from "@/pages/TransactionsPage";
-import UploadPage from "@/pages/UploadPage";
+import TripsPage from "@/pages/TripsPage";
 import MlStatusPage from "@/pages/MlStatusPage";
-import OverridesPage from "@/pages/OverridesPage";
-import RulesPage from "@/pages/RulesPage";
 import CategoriesPage from "@/pages/CategoriesPage";
-import ImportProfilesPage from "@/pages/ImportProfilesPage";
 import PeoplePage from "@/pages/PeoplePage";
 import AccountsPage from "@/pages/AccountsPage";
+import ExternalAccountsPage from "@/pages/ExternalAccountsPage";
+import ImportPage from "@/pages/ImportPage";
+import ClassificationPage from "@/pages/ClassificationPage";
 
 export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/budgets" element={<BudgetPage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
-        <Route path="/upload" element={<UploadPage />} />
+        <Route path="/trips" element={<TripsPage />} />
         <Route path="/ml" element={<MlStatusPage />} />
         <Route path="/people" element={<PeoplePage />} />
         <Route path="/accounts" element={<AccountsPage />} />
-        <Route path="/overrides" element={<OverridesPage />} />
-        <Route path="/rules" element={<RulesPage />} />
+        <Route path="/external-accounts" element={<ExternalAccountsPage />} />
         <Route path="/categories" element={<CategoriesPage />} />
-        <Route path="/import-profiles" element={<ImportProfilesPage />} />
+        <Route path="/classification" element={<ClassificationPage />} />
+        <Route path="/import" element={<ImportPage />} />
       </Route>
     </Routes>
   );

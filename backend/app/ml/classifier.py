@@ -1,5 +1,7 @@
 import logging
+import json
 from pathlib import Path
+from datetime import datetime, timezone
 
 import joblib
 import numpy as np
@@ -31,11 +33,32 @@ class MLClassifier:
         self._is_trained: bool = False
         self._model_path = settings.ml_model_dir / "classifier.joblib"
         self._vectorizer_path = settings.ml_model_dir / "vectorizer.joblib"
+        self._metadata_path = settings.ml_model_dir / "metadata.json"
+        self._last_trained_at: str | None = None
+        self._cross_val_accuracy: float | None = None
+        self._trained_num_samples: int | None = None
+        self._trained_num_classes: int | None = None
         self._load_if_exists()
 
     @property
     def is_trained(self) -> bool:
         return self._is_trained
+
+    @property
+    def last_trained_at(self) -> str | None:
+        return self._last_trained_at
+
+    @property
+    def cross_val_accuracy(self) -> float | None:
+        return self._cross_val_accuracy
+
+    @property
+    def trained_num_samples(self) -> int | None:
+        return self._trained_num_samples
+
+    @property
+    def trained_num_classes(self) -> int | None:
+        return self._trained_num_classes
 
     def train(
         self,
@@ -76,6 +99,10 @@ class MLClassifier:
         )) if len(set(labels)) >= 2 else 1.0
 
         self._is_trained = True
+        self._last_trained_at = datetime.now(timezone.utc).isoformat()
+        self._cross_val_accuracy = round(accuracy, 4)
+        self._trained_num_samples = len(texts)
+        self._trained_num_classes = len(set(labels))
         self._save()
 
         metrics = {
@@ -83,6 +110,7 @@ class MLClassifier:
             "num_samples": len(texts),
             "num_classes": len(set(labels)),
             "cross_val_accuracy": round(accuracy, 4),
+            "last_trained_at": self._last_trained_at,
         }
         logger.info("ML classifier trained: %s", metrics)
         return metrics
@@ -127,6 +155,13 @@ class MLClassifier:
         settings.ml_model_dir.mkdir(parents=True, exist_ok=True)
         joblib.dump(self._vectorizer, self._vectorizer_path)
         joblib.dump(self._model, self._model_path)
+        metadata = {
+            "last_trained_at": self._last_trained_at,
+            "cross_val_accuracy": self._cross_val_accuracy,
+            "num_samples": self._trained_num_samples,
+            "num_classes": self._trained_num_classes,
+        }
+        self._metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         logger.info("ML model saved to %s", self._model_path)
 
     def _load_if_exists(self) -> None:
@@ -135,6 +170,16 @@ class MLClassifier:
                 self._vectorizer = joblib.load(self._vectorizer_path)
                 self._model = joblib.load(self._model_path)
                 self._is_trained = True
+                if self._metadata_path.exists():
+                    meta = json.loads(self._metadata_path.read_text(encoding="utf-8"))
+                    self._last_trained_at = meta.get("last_trained_at")
+                    self._cross_val_accuracy = meta.get("cross_val_accuracy")
+                    self._trained_num_samples = meta.get("num_samples")
+                    self._trained_num_classes = meta.get("num_classes")
+                else:
+                    self._last_trained_at = datetime.fromtimestamp(
+                        self._model_path.stat().st_mtime, tz=timezone.utc
+                    ).isoformat()
                 logger.info("ML model loaded from %s", self._model_path)
             except Exception:
                 logger.exception("Failed to load ML model")

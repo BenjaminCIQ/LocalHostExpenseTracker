@@ -1,8 +1,12 @@
-import { useEffect, useState, useCallback } from "react";
+import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
+import CategorySelect from "@/components/category/CategorySelect";
+import CategoryMultiDropdown from "@/components/category/CategoryMultiDropdown";
+import { Tabs } from "@/components/ui/tabs";
 import {
   ChevronDown,
   ChevronLeft,
@@ -16,6 +20,7 @@ import {
   type Transaction,
   type TransactionListResponse,
   type Category,
+  type Trip,
   type SimilarTransactionCandidate,
   type TransactionRaw,
   type SuggestFieldUpdateCandidate,
@@ -23,6 +28,7 @@ import {
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useSelectedPersonId } from "@/lib/personFilter";
+import TransferReviewPage from "@/pages/TransferReviewPage";
 
 type FilterMode = "all" | "unclassified" | "classified";
 
@@ -85,19 +91,14 @@ function ClassifyCell({
           <ConfidenceBadge confidence={transaction.confidence} />
         </div>
       )}
-      <Select
+      <CategorySelect
+        categories={categories}
         value={selectedCat}
-        onChange={(e) => setSelectedCat(Number(e.target.value) || "")}
+        onChange={(value) => setSelectedCat(typeof value === "number" ? value : "")}
         className="w-40"
-      >
-        <option value="">Select...</option>
-        {categories.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.parent_id ? "\u00A0\u00A0" : ""}
-            {c.name}
-          </option>
-        ))}
-      </Select>
+        placeholder="Select..."
+        mode="path"
+      />
       <Button
         size="sm"
         variant="outline"
@@ -140,19 +141,14 @@ function ClassifyCell({
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Parent</label>
-              <Select
+              <CategorySelect
                 className="mt-1"
+                categories={categories}
                 value={newParentId}
-                onChange={(e) => setNewParentId(Number(e.target.value) || "")}
-              >
-                <option value="">(none)</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.parent_id ? "  " : ""}
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
+                placeholder="(none)"
+                mode="path"
+                onChange={(value) => setNewParentId(typeof value === "number" ? value : "")}
+              />
             </div>
             <div className="flex items-center justify-between gap-2">
               <label className="flex items-center gap-2 text-sm">
@@ -198,12 +194,17 @@ function ClassifyCell({
 }
 
 export default function TransactionsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const selectedPersonId = useSelectedPersonId();
+  const activeTab = searchParams.get("tab") === "transfers" ? "transfers" : "transactions";
   const [data, setData] = useState<TransactionListResponse | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<FilterMode>("all");
+  const [sortBy, setSortBy] = useState<"date" | "amount" | "merchant" | "description" | "category">("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [error, setError] = useState("");
   const [bounds, setBounds] = useState<{
     min_date: string | null;
@@ -214,9 +215,15 @@ export default function TransactionsPage() {
 
   const [searchText, setSearchText] = useState("");
   const [merchantText, setMerchantText] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<number | "">("");
+  const [categoryFilterIds, setCategoryFilterIds] = useState<number[]>([]);
+  const [categoryFilterSearch, setCategoryFilterSearch] = useState("");
+  const [transactionKindFilter, setTransactionKindFilter] = useState<
+    "" | "income" | "expense" | "transfer" | "adjustment"
+  >("");
+  const [includeTransfers, setIncludeTransfers] = useState(true);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
+  const [tripFilterId, setTripFilterId] = useState<number | "">("");
   const [minAmount, setMinAmount] = useState<number | null>(null);
   const [maxAmount, setMaxAmount] = useState<number | null>(null);
   const hasAmountBounds =
@@ -262,6 +269,11 @@ export default function TransactionsPage() {
   const [applySimilarSelected, setApplySimilarSelected] = useState<Set<number>>(
     new Set()
   );
+  const [applySimilarSeedValues, setApplySimilarSeedValues] = useState<{
+    merchant: string;
+    description: string;
+    raw_description: string;
+  }>({ merchant: "", description: "", raw_description: "" });
   const [applySimilarLoading, setApplySimilarLoading] = useState(false);
   const [applyFieldMerchant, setApplyFieldMerchant] = useState(true);
   const [applyFieldDescription, setApplyFieldDescription] = useState(false);
@@ -296,6 +308,41 @@ export default function TransactionsPage() {
   const [manualDescription, setManualDescription] = useState<string>("");
   const [manualCurrency, setManualCurrency] = useState<string>("EUR");
   const [manualSaving, setManualSaving] = useState(false);
+  const [linkSourceTxnId, setLinkSourceTxnId] = useState<number | null>(null);
+  const [linkDropTargetTxnId, setLinkDropTargetTxnId] = useState<number | null>(null);
+
+  const selectedCategoryNames = useMemo(
+    () =>
+      categories
+        .filter((c) => categoryFilterIds.includes(c.id))
+        .map((c) => c.name),
+    [categories, categoryFilterIds]
+  );
+
+  function buildTransferLinkWarnings(source: Transaction, target: Transaction): string[] {
+    const warnings: string[] = [];
+    if (source.account_id === target.account_id) {
+      warnings.push("Both transactions are in the same account.");
+    }
+    if (source.currency !== target.currency) {
+      warnings.push("Currencies do not match.");
+    }
+    if (source.amount === 0 || target.amount === 0 || source.amount * target.amount > 0) {
+      warnings.push("Amounts are not opposite-sign inflow/outflow.");
+    }
+    const amountDelta = Math.abs(Math.abs(source.amount) - Math.abs(target.amount));
+    if (amountDelta > 0.01) {
+      warnings.push(`Absolute amounts differ by ${formatCurrency(amountDelta)}.`);
+    }
+    const dayDelta = Math.abs(
+      (new Date(source.date).getTime() - new Date(target.date).getTime()) /
+        (1000 * 60 * 60 * 24)
+    );
+    if (dayDelta > 3) {
+      warnings.push(`Dates are ${Math.round(dayDelta)} days apart.`);
+    }
+    return warnings;
+  }
 
   useEffect(() => {
     try {
@@ -314,10 +361,16 @@ export default function TransactionsPage() {
       q?: string;
       merchant?: string;
       category_id?: number;
+      category_ids?: number[];
       start_date?: string;
       end_date?: string;
       min_amount?: number;
       max_amount?: number;
+      transaction_kind?: "income" | "expense" | "transfer" | "adjustment";
+      trip_id?: number;
+      include_transfers?: boolean;
+      sort_by?: "date" | "amount" | "merchant" | "description" | "category";
+      sort_dir?: "asc" | "desc";
     } = {
       page,
       page_size: 50,
@@ -327,24 +380,59 @@ export default function TransactionsPage() {
     if (filter === "unclassified") params.classified = false;
     if (searchText.trim()) params.q = searchText.trim();
     if (merchantText.trim()) params.merchant = merchantText.trim();
-    if (categoryFilter) params.category_id = Number(categoryFilter);
+    if (categoryFilterIds.length === 1) params.category_id = categoryFilterIds[0];
+    if (categoryFilterIds.length > 1) params.category_ids = categoryFilterIds;
     if (startDate) params.start_date = startDate;
     if (endDate) params.end_date = endDate;
+    if (tripFilterId) params.trip_id = Number(tripFilterId);
     if (minAmount !== null) params.min_amount = minAmount;
     if (maxAmount !== null) params.max_amount = maxAmount;
+    if (transactionKindFilter) params.transaction_kind = transactionKindFilter;
+    params.include_transfers = includeTransfers;
+    params.sort_by = sortBy;
+    params.sort_dir = sortDir;
     api.getTransactions(params).then(setData).catch((e) => setError(e.message));
   }, [
     page,
     filter,
     searchText,
     merchantText,
-    categoryFilter,
+    categoryFilterIds,
     startDate,
     endDate,
+    tripFilterId,
     minAmount,
     maxAmount,
+    transactionKindFilter,
+    includeTransfers,
+    sortBy,
+    sortDir,
     selectedPersonId,
   ]);
+
+  const linkByDrop = useCallback(
+    async (targetTxn: Transaction) => {
+      if (!data || linkSourceTxnId === null || linkSourceTxnId === targetTxn.id) return;
+      const sourceTxn = data.items.find((item) => item.id === linkSourceTxnId);
+      if (!sourceTxn) return;
+      const warnings = buildTransferLinkWarnings(sourceTxn, targetTxn);
+      const title = `Link transfer: #${sourceTxn.id} -> #${targetTxn.id}`;
+      const warningBlock = warnings.length
+        ? `\n\nWarnings:\n- ${warnings.join("\n- ")}\n\nContinue anyway?`
+        : "\n\nChecks passed (date/value alignment looks good). Continue?";
+      const confirmed = window.confirm(`${title}${warningBlock}`);
+      if (!confirmed) return;
+      try {
+        await api.linkTransferPair(sourceTxn.id, targetTxn.id);
+        setLinkSourceTxnId(null);
+        setLinkDropTargetTxnId(null);
+        await load();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to link transfer");
+      }
+    },
+    [data, linkSourceTxnId, load]
+  );
 
   useEffect(() => {
     load();
@@ -352,6 +440,10 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     api.getCategories().then(setCategories);
+  }, []);
+
+  useEffect(() => {
+    api.getTrips().then(setTrips).catch(() => setTrips([]));
   }, []);
 
   useEffect(() => {
@@ -425,14 +517,30 @@ export default function TransactionsPage() {
     }
   };
 
+  const toggleSort = (
+    next: "date" | "amount" | "merchant" | "description" | "category"
+  ) => {
+    if (sortBy === next) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(next);
+      setSortDir(next === "date" ? "desc" : "asc");
+    }
+    setPage(1);
+  };
+
   if (error) return <p className="text-destructive">{error}</p>;
 
   const resetFilters = () => {
     setSearchText("");
     setMerchantText("");
-    setCategoryFilter("");
+    setCategoryFilterIds([]);
+    setCategoryFilterSearch("");
+    setTransactionKindFilter("");
+    setIncludeTransfers(true);
     setStartDate(bounds?.min_date ?? "");
     setEndDate(bounds?.max_date ?? "");
+    setTripFilterId("");
     setMinAmount(bounds?.min_amount ?? null);
     setMaxAmount(bounds?.max_amount ?? null);
     setPage(1);
@@ -442,12 +550,15 @@ export default function TransactionsPage() {
     let n = 0;
     if (searchText.trim()) n += 1;
     if (merchantText.trim()) n += 1;
-    if (categoryFilter) n += 1;
+    if (categoryFilterIds.length) n += 1;
+    if (transactionKindFilter) n += 1;
+    if (!includeTransfers) n += 1;
 
     const defaultStart = bounds?.min_date ?? "";
     const defaultEnd = bounds?.max_date ?? "";
     if (startDate && startDate !== defaultStart) n += 1;
     if (endDate && endDate !== defaultEnd) n += 1;
+    if (tripFilterId) n += 1;
 
     const minBound = bounds?.min_amount ?? null;
     const maxBound = bounds?.max_amount ?? null;
@@ -462,8 +573,43 @@ export default function TransactionsPage() {
     .filter((c) => similarSelected.has(c.transaction_id))
     .reduce((sum, c) => sum + c.amount, 0);
 
+  if (activeTab === "transfers") {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Tabs
+            value={activeTab}
+            onChange={(next) => setSearchParams(next === "transfers" ? { tab: "transfers" } : {})}
+            options={[
+              { value: "transactions", label: "Transactions" },
+              { value: "transfers", label: "Transfer Review" },
+            ]}
+          />
+          <Link to="/import">
+            <Button variant="outline">Import Data</Button>
+          </Link>
+        </div>
+        <TransferReviewPage embedded />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Tabs
+          value={activeTab}
+          onChange={(next) => setSearchParams(next === "transfers" ? { tab: "transfers" } : {})}
+          options={[
+            { value: "transactions", label: "Transactions" },
+            { value: "transfers", label: "Transfer Review" },
+          ]}
+        />
+        <Link to="/import">
+          <Button variant="outline">Import Data</Button>
+        </Link>
+      </div>
+
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Transactions</h2>
         <div className="flex gap-2">
@@ -520,6 +666,16 @@ export default function TransactionsPage() {
               {activeFilterCount > 0 && !filtersOpen && (
                 <Badge variant="secondary">{activeFilterCount} active</Badge>
               )}
+              {!filtersOpen && selectedCategoryNames.length > 0 && (
+                <>
+                  {selectedCategoryNames.slice(0, 2).map((name, idx) => (
+                    <Badge key={`${name}-${idx}`} variant="outline">{name}</Badge>
+                  ))}
+                  {selectedCategoryNames.length > 2 && (
+                    <Badge variant="outline">+{selectedCategoryNames.length - 2}</Badge>
+                  )}
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {!filtersOpen && activeFilterCount > 0 && (
@@ -574,21 +730,67 @@ export default function TransactionsPage() {
                 placeholder="REWE, Spotify…"
               />
             </div>
-            <div>
+            <div className="md:col-span-2">
               <label className="text-sm text-muted-foreground">Category</label>
+              <CategoryMultiDropdown
+                categories={categories}
+                selectedIds={categoryFilterIds}
+                search={categoryFilterSearch}
+                onSearchChange={setCategoryFilterSearch}
+                onChange={(ids) => {
+                  setCategoryFilterIds(ids);
+                  setPage(1);
+                }}
+              />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground">Kind</label>
               <Select
                 className="mt-1"
-                value={categoryFilter}
+                value={transactionKindFilter}
                 onChange={(e) => {
-                  setCategoryFilter(Number(e.target.value) || "");
+                  setTransactionKindFilter(
+                    (e.target.value as "income" | "expense" | "transfer" | "adjustment" | "") ?? ""
+                  );
                   setPage(1);
                 }}
               >
                 <option value="">All</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.parent_id ? "  " : ""}
-                    {c.name}
+                <option value="income">Income</option>
+                <option value="expense">Expense</option>
+                <option value="transfer">Transfer</option>
+                <option value="adjustment">Adjustment</option>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="include-transfers-filter"
+                type="checkbox"
+                checked={includeTransfers}
+                onChange={(e) => {
+                  setIncludeTransfers(e.target.checked);
+                  setPage(1);
+                }}
+              />
+              <label htmlFor="include-transfers-filter" className="text-sm text-muted-foreground">
+                Include transfers
+              </label>
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground">Trip window</label>
+              <Select
+                className="mt-1"
+                value={tripFilterId}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setTripFilterId(raw ? Number(raw) : "");
+                  setPage(1);
+                }}
+              >
+                <option value="">All trips</option>
+                {trips.map((trip) => (
+                  <option key={trip.id} value={trip.id}>
+                    {trip.name} ({trip.start_date} {"->"} {trip.end_date})
                   </option>
                 ))}
               </Select>
@@ -687,23 +889,84 @@ export default function TransactionsPage() {
 
       <Card>
         <CardContent className="p-0">
+          {linkSourceTxnId !== null && (
+            <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/20 px-3 py-2 text-sm">
+              <span>
+                Drag transaction <span className="font-mono">#{linkSourceTxnId}</span> onto its counterpart row to link.
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setLinkSourceTxnId(null);
+                  setLinkDropTargetTxnId(null);
+                }}
+              >
+                Cancel link mode
+              </Button>
+            </div>
+          )}
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full table-fixed text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left p-3 font-medium">Date</th>
-                  <th className="text-left p-3 font-medium">Description</th>
-                  <th className="text-left p-3 font-medium">Merchant</th>
-                  <th className="text-right p-3 font-medium">Amount</th>
-                  <th className="text-left p-3 font-medium">Category</th>
+                  <th className="w-44 text-left p-3 font-medium">
+                    <button onClick={() => toggleSort("date")}>Date {sortBy === "date" ? (sortDir === "asc" ? "↑" : "↓") : ""}</button>
+                  </th>
+                  <th className="text-left p-3 font-medium">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button onClick={() => toggleSort("description")}>
+                        Description {sortBy === "description" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                      </button>
+                      <span className="text-muted-foreground">/</span>
+                      <button onClick={() => toggleSort("merchant")}>
+                        Merchant {sortBy === "merchant" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                      </button>
+                    </div>
+                  </th>
+                  <th className="w-36 text-right p-3 font-medium">
+                    <button onClick={() => toggleSort("amount")}>Amount {sortBy === "amount" ? (sortDir === "asc" ? "↑" : "↓") : ""}</button>
+                  </th>
+                  <th className="w-[28rem] text-left p-3 font-medium">
+                    <button onClick={() => toggleSort("category")}>Category {sortBy === "category" ? (sortDir === "asc" ? "↑" : "↓") : ""}</button>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {data?.items.map((txn) => (
-                  <>
+                {data?.items.map((txn) => {
+                  const isLinkSource = linkSourceTxnId === txn.id;
+                  const isLinkDropTarget = linkDropTargetTxnId === txn.id;
+                  return (
+                  <Fragment key={txn.id}>
                     <tr
-                      key={txn.id}
-                      className="border-b hover:bg-muted/30 transition-colors"
+                      draggable={isLinkSource}
+                      onDragStart={(e) => {
+                        if (!isLinkSource) return;
+                        e.dataTransfer.setData("text/plain", String(txn.id));
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragEnd={() => setLinkDropTargetTxnId(null)}
+                      onDragOver={(e) => {
+                        if (linkSourceTxnId === null || isLinkSource) return;
+                        e.preventDefault();
+                        setLinkDropTargetTxnId(txn.id);
+                      }}
+                      onDragLeave={() => {
+                        if (isLinkDropTarget) setLinkDropTargetTxnId(null);
+                      }}
+                      onDrop={(e) => {
+                        if (linkSourceTxnId === null || isLinkSource) return;
+                        e.preventDefault();
+                        setLinkDropTargetTxnId(null);
+                        void linkByDrop(txn);
+                      }}
+                      className={`border-b transition-colors ${
+                        isLinkSource
+                          ? "cursor-grab bg-primary/10"
+                          : isLinkDropTarget
+                            ? "bg-warning/15"
+                            : "hover:bg-muted/30"
+                      }`}
                     >
                       <td className="p-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
@@ -733,10 +996,29 @@ export default function TransactionsPage() {
                           <span>{formatDate(txn.date)}</span>
                         </div>
                       </td>
-                      <td className="p-3 max-w-xs truncate" title={txn.raw_description}>
-                        {txn.description}
+                      <td className="p-3 align-top">
+                        <div className="truncate" title={txn.raw_description}>
+                          {txn.description}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                          <span className="text-muted-foreground truncate max-w-56" title={txn.merchant}>
+                            {txn.merchant || "Unknown merchant"}
+                          </span>
+                          <Badge
+                            variant={
+                              txn.transaction_kind === "transfer"
+                                ? "secondary"
+                                : txn.transaction_kind === "income"
+                                  ? "success"
+                                  : txn.transaction_kind === "adjustment"
+                                    ? "warning"
+                                    : "default"
+                            }
+                          >
+                            {txn.transaction_kind}
+                          </Badge>
+                        </div>
                       </td>
-                      <td className="p-3 whitespace-nowrap">{txn.merchant}</td>
                       <td
                         className={`p-3 text-right whitespace-nowrap font-mono ${
                           txn.amount >= 0 ? "text-success" : "text-destructive"
@@ -758,7 +1040,7 @@ export default function TransactionsPage() {
                     </tr>
                     {expandedTxnId === txn.id && (
                       <tr className="border-b bg-muted/20">
-                        <td colSpan={5} className="p-3">
+                        <td colSpan={4} className="p-3">
                           {expandedLoading ? (
                             <div className="text-sm text-muted-foreground">
                               Loading raw import data...
@@ -768,6 +1050,79 @@ export default function TransactionsPage() {
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-sm font-medium">Details</div>
                                 <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={async () => {
+                                      try {
+                                        await api.updateTransaction(txn.id, {
+                                          transaction_kind: "transfer",
+                                          is_internal_transfer: true,
+                                        });
+                                        load();
+                                      } catch (e) {
+                                        setError(e instanceof Error ? e.message : "Failed to mark transfer");
+                                      }
+                                    }}
+                                  >
+                                    Mark as transfer
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setLinkSourceTxnId(txn.id);
+                                      setLinkDropTargetTxnId(null);
+                                    }}
+                                  >
+                                    Link counterpart (drag)
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={async () => {
+                                      try {
+                                        await api.unlinkTransfer(txn.id);
+                                        load();
+                                      } catch (e) {
+                                        setError(e instanceof Error ? e.message : "Failed to unlink transfer");
+                                      }
+                                    }}
+                                  >
+                                    Unlink
+                                  </Button>
+                                  {(txn.transaction_kind === "transfer" || txn.is_internal_transfer) && !txn.transfer_group_id && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={async () => {
+                                        try {
+                                          await api.updateTransaction(txn.id, {
+                                            transaction_kind:
+                                              txn.amount > 0
+                                                ? "income"
+                                                : txn.amount < 0
+                                                  ? "expense"
+                                                  : "adjustment",
+                                            is_internal_transfer: false,
+                                            transfer_group_id: null,
+                                            transfer_linked_transaction_id: null,
+                                            transfer_confidence: null,
+                                            transfer_match_source: null,
+                                          });
+                                          await load();
+                                        } catch (e) {
+                                          setError(
+                                            e instanceof Error
+                                              ? e.message
+                                              : "Failed to unmark transfer"
+                                          );
+                                        }
+                                      }}
+                                    >
+                                      Unmark transfer
+                                    </Button>
+                                  )}
                                   {editOpenTxnId === txn.id ? (
                                     <>
                                       <Button
@@ -816,6 +1171,11 @@ export default function TransactionsPage() {
                                             );
 
                                             setApplySimilarSeedId(txn.id);
+                                            setApplySimilarSeedValues({
+                                              merchant: editMerchant,
+                                              description: editDescription,
+                                              raw_description: editRawDescription,
+                                            });
                                             setApplySimilarCandidates(candidates);
                                             setApplySimilarSelected(
                                               new Set(candidates.map((c) => c.transaction_id))
@@ -933,21 +1293,18 @@ export default function TransactionsPage() {
                                     <label className="text-xs text-muted-foreground">
                                       Category
                                     </label>
-                                    <Select
+                                    <CategorySelect
                                       className="mt-1"
+                                      categories={categories}
                                       value={editCategoryId}
-                                      onChange={(e) =>
-                                        setEditCategoryId(Number(e.target.value) || "")
+                                      placeholder="(no change)"
+                                      mode="path"
+                                      onChange={(value) =>
+                                        setEditCategoryId(
+                                          typeof value === "number" ? value : ""
+                                        )
                                       }
-                                    >
-                                      <option value="">(no change)</option>
-                                      {categories.map((c) => (
-                                        <option key={c.id} value={c.id}>
-                                          {c.parent_id ? "\u00A0\u00A0" : ""}
-                                          {c.name}
-                                        </option>
-                                      ))}
-                                    </Select>
+                                    />
                                   </div>
                                   <div className="md:col-span-1">
                                     <label className="text-xs text-muted-foreground">
@@ -1028,8 +1385,8 @@ export default function TransactionsPage() {
                         </td>
                       </tr>
                     )}
-                  </>
-                ))}
+                  </Fragment>
+                )})}
                 {data?.items.length === 0 && (
                   <tr>
                     <td
@@ -1378,6 +1735,21 @@ export default function TransactionsPage() {
               </Button>
             </div>
             <div className="p-4 space-y-3">
+              {applySimilarSelected.size > 0 &&
+                (() => {
+                  const selectedClassified = applySimilarCandidates.filter(
+                    (candidate) =>
+                      applySimilarSelected.has(candidate.transaction_id) &&
+                      candidate.is_classified
+                  ).length;
+                  if (selectedClassified === 0) return null;
+                  return (
+                    <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+                      {selectedClassified} selected transaction(s) are already classified.
+                      Applying changes will update text fields but keep existing categories.
+                    </div>
+                  );
+                })()}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <label className="flex items-center gap-2 text-sm">
@@ -1430,8 +1802,10 @@ export default function TransactionsPage() {
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="p-2 text-left">Apply</th>
+                      <th className="p-2 text-left">Status</th>
                       <th className="p-2 text-left">Merchant</th>
                       <th className="p-2 text-left">Description</th>
+                      <th className="p-2 text-left">Match reason</th>
                       <th className="p-2 text-right">Score</th>
                     </tr>
                   </thead>
@@ -1452,16 +1826,26 @@ export default function TransactionsPage() {
                             }}
                           />
                         </td>
+                        <td className="p-2">
+                          {c.is_classified ? (
+                            <Badge variant="warning">Classified</Badge>
+                          ) : (
+                            <Badge variant="secondary">Unclassified</Badge>
+                          )}
+                        </td>
                         <td className="p-2 whitespace-nowrap">{c.current_merchant}</td>
                         <td className="p-2 max-w-md truncate" title={c.current_description}>
                           {c.current_description}
+                        </td>
+                        <td className="p-2 max-w-xs truncate" title={c.reasons.join(", ")}>
+                          {(c.reasons.length ? c.reasons : [c.reason]).join(", ")}
                         </td>
                         <td className="p-2 text-right font-mono">{c.score.toFixed(0)}</td>
                       </tr>
                     ))}
                     {applySimilarCandidates.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="p-6 text-center text-muted-foreground">
+                        <td colSpan={6} className="p-6 text-center text-muted-foreground">
                           No candidates found.
                         </td>
                       </tr>
@@ -1481,27 +1865,34 @@ export default function TransactionsPage() {
                   }
                   onClick={async () => {
                     if (applySimilarSeedId === null) return;
-                    const seed = applySimilarCandidates[0];
                     const payload: {
                       transaction_ids: number[];
                       merchant?: string | null;
                       description?: string | null;
                       raw_description?: string | null;
+                      allow_classified?: boolean;
                       re_predict?: boolean;
                     } = {
                       transaction_ids: Array.from(applySimilarSelected),
+                      allow_classified: true,
                       re_predict: true,
                     };
-                    if (applyFieldMerchant && seed?.suggested_merchant)
-                      payload.merchant = seed.suggested_merchant;
-                    if (applyFieldDescription && seed?.suggested_description)
-                      payload.description = seed.suggested_description;
-                    if (applyFieldRawDescription && seed?.suggested_raw_description)
-                      payload.raw_description = seed.suggested_raw_description;
+                    if (applyFieldMerchant) payload.merchant = applySimilarSeedValues.merchant;
+                    if (applyFieldDescription) payload.description = applySimilarSeedValues.description;
+                    if (applyFieldRawDescription)
+                      payload.raw_description = applySimilarSeedValues.raw_description;
 
                     setApplySimilarLoading(true);
                     try {
-                      await api.bulkUpdateFields(payload);
+                      const result = await api.bulkUpdateFields(payload);
+                      const skippedReasons = Object.entries(result.skipped_reasons ?? {})
+                        .map(([reason, count]) => `${reason}: ${count}`)
+                        .join(", ");
+                      alert(
+                        `Updated ${result.updated} transaction(s) (${result.updated_classified} classified). ` +
+                          `Skipped ${result.skipped}.` +
+                          (skippedReasons ? ` Reasons: ${skippedReasons}` : "")
+                      );
                       setApplySimilarOpen(false);
                       setApplySimilarCandidates([]);
                       setApplySimilarSelected(new Set());

@@ -20,9 +20,11 @@ from app.models import rule as _rule_models  # noqa: F401
 from app.models import parsing_rule as _parsing_rule_models  # noqa: F401
 from app.models import person as _person_models  # noqa: F401
 from app.routers import (
+    analytics,
     accounts,
     categories,
     dashboard,
+    external_accounts,
     import_profiles,
     ml,
     overrides,
@@ -113,7 +115,9 @@ def test_app(db_session: Session, classifier: MLClassifier) -> FastAPI:
     app.include_router(persons.router)
     app.include_router(upload.router)
     app.include_router(transactions.router)
+    app.include_router(external_accounts.router)
     app.include_router(dashboard.router)
+    app.include_router(analytics.router)
     app.include_router(ml.router)
     app.include_router(overrides.router)
     app.include_router(rules.router)

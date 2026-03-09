@@ -14,4 +14,7 @@ class Person(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     accounts: Mapped[list["Account"]] = relationship(back_populates="person")
+    external_accounts: Mapped[list["ExternalAccount"]] = relationship(
+        back_populates="person"
+    )
 

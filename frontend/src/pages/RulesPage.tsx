@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import CategorySelect from "@/components/category/CategorySelect";
 import { api, type Category, type Rule, type RuleCondition } from "@/lib/api";
 
 type Logic = "AND" | "OR";
@@ -37,7 +38,7 @@ function defaultCondition(): RuleCondition {
   return { field: "description", operator: "contains", value: "" };
 }
 
-export default function RulesPage() {
+export default function RulesPage({ embedded = false }: { embedded?: boolean }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [error, setError] = useState("");
@@ -168,7 +169,7 @@ export default function RulesPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Rules</h2>
+      {!embedded && <h2 className="text-2xl font-bold">Rules</h2>}
       {error && <p className="text-destructive">{error}</p>}
 
       <Card>
@@ -194,22 +195,16 @@ export default function RulesPage() {
             </div>
             <div>
               <label className="text-sm text-muted-foreground">Category</label>
-              <Select
+              <CategorySelect
                 className="mt-1"
+                categories={categories}
                 value={categoryId}
-                onChange={(e) => setCategoryId(Number(e.target.value) || "")}
-              >
-                <option value="">Select...</option>
-                {categories
-                  .slice()
-                  .sort((a, b) => a.sort_order - b.sort_order)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.parent_id ? "  " : ""}
-                      {c.name}
-                    </option>
-                  ))}
-              </Select>
+                placeholder="Select..."
+                mode="path"
+                onChange={(value) =>
+                  setCategoryId(typeof value === "number" ? value : "")
+                }
+              />
             </div>
             <div>
               <label className="text-sm text-muted-foreground">Logic</label>

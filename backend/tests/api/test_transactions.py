@@ -121,6 +121,38 @@ def test_bulk_update_fields_updates_unclassified_and_skips_classified(client, sa
         assert updated[tid]["merchant"] == "UPDATED"
 
 
+def test_bulk_update_fields_can_update_classified_with_flag(client, sample_csv: str):
+    _upload(client, sample_csv)
+    txns = client.get("/api/transactions/").json()["items"]
+    cats = client.get("/api/categories/").json()
+    cat_id = next(c["id"] for c in cats if c.get("parent_id") is not None)
+    classified_id = txns[0]["id"]
+
+    res = client.post(
+        f"/api/transactions/{classified_id}/classify",
+        json={"category_id": cat_id, "merchant": "REWE"},
+    )
+    assert res.status_code == 200
+
+    bulk = client.post(
+        "/api/transactions/bulk-update-fields",
+        json={
+            "transaction_ids": [classified_id],
+            "merchant": "UPDATED-CLASSIFIED",
+            "allow_classified": True,
+            "re_predict": False,
+        },
+    )
+    assert bulk.status_code == 200
+    body = bulk.json()
+    assert body["updated"] == 1
+    assert body["updated_classified"] == 1
+    assert body["skipped"] == 0
+
+    after = client.get(f"/api/transactions/{classified_id}").json()
+    assert after["merchant"] == "UPDATED-CLASSIFIED"
+
+
 def test_suggest_field_updates_returns_operator_candidates(client):
     sample = "\n".join(
         [
@@ -143,4 +175,142 @@ def test_suggest_field_updates_returns_operator_candidates(client):
     assert len(items) >= 1
     # Ensure we don't suggest the seed txn itself
     assert all(i["transaction_id"] != seed["id"] for i in items)
+    # Extended metadata should be present for UI review.
+    assert all("reasons" in i and "matched_fields" in i and "is_classified" in i for i in items)
+
+
+def test_transfer_link_and_filter_behavior(client):
+    t1 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-10",
+            "amount": -100.0,
+            "description": "Move to savings",
+            "merchant": "Internal",
+            "currency": "EUR",
+        },
+    )
+    assert t1.status_code == 201
+
+    # Create another account for counterpart transfer leg.
+    a2 = client.post("/api/accounts/", json={"name": "Savings", "currency": "EUR"})
+    assert a2.status_code == 201
+    account_2_id = a2.json()["id"]
+
+    t2 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": account_2_id,
+            "date": "2026-01-10",
+            "amount": 100.0,
+            "description": "Transfer from checking",
+            "merchant": "Internal",
+            "currency": "EUR",
+        },
+    )
+    assert t2.status_code == 201
+
+    id1 = t1.json()["id"]
+    id2 = t2.json()["id"]
+    link = client.post(
+        "/api/transactions/transfers/link",
+        json={"transaction_id": id1, "candidate_id": id2, "confidence": 0.97},
+    )
+    assert link.status_code == 200
+    assert link.json()["linked"] is True
+
+    only_transfers = client.get("/api/transactions/?transaction_kind=transfer").json()
+    assert only_transfers["total"] >= 2
+
+    no_transfers = client.get("/api/transactions/?include_transfers=false").json()
+    assert all(item["is_internal_transfer"] is False for item in no_transfers["items"])
+
+
+def test_transfer_candidates_and_auto_link(client):
+    a2 = client.post("/api/accounts/", json={"name": "Brokerage", "currency": "EUR"})
+    assert a2.status_code == 201
+    account_2_id = a2.json()["id"]
+
+    t1 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-11",
+            "amount": -250.0,
+            "description": "internal move",
+            "merchant": "Internal",
+            "currency": "EUR",
+        },
+    )
+    t2 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": account_2_id,
+            "date": "2026-01-11",
+            "amount": 250.0,
+            "description": "internal move",
+            "merchant": "Internal",
+            "currency": "EUR",
+        },
+    )
+    assert t1.status_code == 201
+    assert t2.status_code == 201
+
+    cand = client.get("/api/transactions/transfer-candidates?limit=50")
+    assert cand.status_code == 200
+    assert any(
+        {row["transaction_id"], row["candidate_id"]} == {t1.json()["id"], t2.json()["id"]}
+        for row in cand.json()
+    )
+
+    linked = client.post("/api/transactions/transfers/auto-link?limit=50")
+    assert linked.status_code == 200
+    body = linked.json()
+    assert body["reviewed"] >= 1
+
+
+def test_analytics_excludes_transfers_by_default_household_and_includes_for_account(client):
+    a2 = client.post("/api/accounts/", json={"name": "Wallet", "currency": "EUR"})
+    assert a2.status_code == 201
+    account_2_id = a2.json()["id"]
+
+    t1 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-15",
+            "amount": -120.0,
+            "description": "to wallet",
+            "merchant": "Internal",
+            "currency": "EUR",
+        },
+    ).json()
+    t2 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": account_2_id,
+            "date": "2026-01-15",
+            "amount": 120.0,
+            "description": "from checking",
+            "merchant": "Internal",
+            "currency": "EUR",
+        },
+    ).json()
+
+    client.post(
+        "/api/transactions/transfers/link",
+        json={"transaction_id": t1["id"], "candidate_id": t2["id"], "confidence": 1.0},
+    )
+
+    household = client.get("/api/analytics/timeseries?granularity=monthly")
+    assert household.status_code == 200
+    points = household.json()["points"]
+    # Household view excludes linked internal transfers by default.
+    assert all(abs(p["income"]) < 0.001 and abs(p["expenses"]) < 0.001 for p in points)
+
+    account_view = client.get("/api/analytics/timeseries?granularity=monthly&account_id=1")
+    assert account_view.status_code == 200
+    account_points = account_view.json()["points"]
+    assert any(abs(p["expenses"]) > 0.001 for p in account_points)
 
