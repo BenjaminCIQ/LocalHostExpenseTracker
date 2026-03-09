@@ -9,12 +9,14 @@ import {
   YAxis,
 } from "recharts";
 import { api, type AnalyticsTimeseriesPoint } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
 function RunningBalanceWidget({ filters }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   useEffect(() => {
     api.getAnalyticsTimeseries({ ...toAnalyticsParams(filters), granularity: "monthly" })
@@ -39,7 +41,13 @@ function RunningBalanceWidget({ filters }: WidgetProps) {
           <XAxis dataKey="period" />
           <YAxis />
           <Tooltip formatter={(v) => formatCurrency(Number(v))} />
-          <Area type="monotone" dataKey="cumulative" stroke="#2563eb" fill="#bfdbfe" />
+          <Area
+            type="monotone"
+            dataKey="cumulative"
+            stroke={chartColors.net}
+            fill={chartColors.net}
+            fillOpacity={0.24}
+          />
         </AreaChart>
       </ResponsiveContainer>
     </div>

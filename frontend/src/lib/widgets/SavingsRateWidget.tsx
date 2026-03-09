@@ -9,11 +9,13 @@ import {
   YAxis,
 } from "recharts";
 import { api, type AnalyticsTimeseriesPoint } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
 function SavingsRateWidget({ filters }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   useEffect(() => {
     api
@@ -40,7 +42,7 @@ function SavingsRateWidget({ filters }: WidgetProps) {
           <XAxis dataKey="period" />
           <YAxis />
           <Tooltip formatter={(v) => `${Number(v).toFixed(1)}%`} />
-          <Line type="monotone" dataKey="rate" stroke="#16a34a" />
+          <Line type="monotone" dataKey="rate" stroke={chartColors.income} />
         </LineChart>
       </ResponsiveContainer>
     </div>

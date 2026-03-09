@@ -9,12 +9,14 @@ import {
   YAxis,
 } from "recharts";
 import { api, type AnalyticsTimeseriesPoint } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
 function CashFlowForecastWidget({ filters }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   useEffect(() => {
     api.getAnalyticsTimeseries({ ...toAnalyticsParams(filters), granularity: "monthly" })
@@ -45,8 +47,20 @@ function CashFlowForecastWidget({ filters }: WidgetProps) {
           <XAxis dataKey="period" />
           <YAxis />
           <Tooltip formatter={(v) => (v === null ? "-" : formatCurrency(Number(v)))} />
-          <Area type="monotone" dataKey="actual" stroke="#2563eb" fill="#93c5fd" />
-          <Area type="monotone" dataKey="projected" stroke="#7c3aed" fill="#c4b5fd" />
+          <Area
+            type="monotone"
+            dataKey="actual"
+            stroke={chartColors.net}
+            fill={chartColors.net}
+            fillOpacity={0.3}
+          />
+          <Area
+            type="monotone"
+            dataKey="projected"
+            stroke={chartColors.projected}
+            fill={chartColors.projected}
+            fillOpacity={0.22}
+          />
         </AreaChart>
       </ResponsiveContainer>
     </div>

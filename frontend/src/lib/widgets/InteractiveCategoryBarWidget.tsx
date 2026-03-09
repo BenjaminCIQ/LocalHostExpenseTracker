@@ -16,6 +16,7 @@ import { api, type AnalyticsCategoryAmount, type AnalyticsTimeseriesPoint } from
 import CategoryMultiDropdown from "@/components/category/CategoryMultiDropdown";
 import { ControlsSection } from "@/components/widget-controls/ControlsSection";
 import { ThresholdSlider } from "@/components/widget-controls/ThresholdSlider";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
@@ -28,12 +29,107 @@ type SavedCategoryCombo = {
 
 const SAVED_COMBOS_KEY = "interactive_category_bar_saved_combos";
 
+type ChartGranularity = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
+
+function parseIsoDate(value: string): Date {
+  const [y, m, d] = value.split("-").map((v) => Number(v));
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+}
+
+function toIsoDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function startOfPeriod(date: Date, granularity: ChartGranularity): Date {
+  const d = new Date(date);
+  if (granularity === "daily") return d;
+  if (granularity === "weekly") {
+    const day = d.getUTCDay(); // 0=Sun
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    d.setUTCDate(d.getUTCDate() + mondayOffset);
+    return d;
+  }
+  if (granularity === "monthly") {
+    d.setUTCDate(1);
+    return d;
+  }
+  if (granularity === "quarterly") {
+    const qStartMonth = Math.floor(d.getUTCMonth() / 3) * 3;
+    d.setUTCMonth(qStartMonth, 1);
+    return d;
+  }
+  d.setUTCMonth(0, 1);
+  return d;
+}
+
+function addPeriod(date: Date, granularity: ChartGranularity): Date {
+  const d = new Date(date);
+  if (granularity === "daily") d.setUTCDate(d.getUTCDate() + 1);
+  else if (granularity === "weekly") d.setUTCDate(d.getUTCDate() + 7);
+  else if (granularity === "monthly") d.setUTCMonth(d.getUTCMonth() + 1);
+  else if (granularity === "quarterly") d.setUTCMonth(d.getUTCMonth() + 3);
+  else d.setUTCFullYear(d.getUTCFullYear() + 1);
+  return d;
+}
+
+function weekKey(date: Date): string {
+  const d = new Date(date);
+  const year = d.getUTCFullYear();
+  const jan1 = new Date(Date.UTC(year, 0, 1));
+  const jan1WeekdayMon0 = (jan1.getUTCDay() + 6) % 7; // Mon=0
+  const daysToFirstMonday = jan1WeekdayMon0 === 0 ? 0 : 7 - jan1WeekdayMon0;
+  const firstMonday = new Date(jan1);
+  firstMonday.setUTCDate(jan1.getUTCDate() + daysToFirstMonday);
+  let week = 0;
+  if (d >= firstMonday) {
+    week = Math.floor((d.getTime() - firstMonday.getTime()) / (1000 * 60 * 60 * 24 * 7)) + 1;
+  }
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+
+function periodKey(date: Date, granularity: ChartGranularity): string {
+  const d = startOfPeriod(date, granularity);
+  if (granularity === "daily") return toIsoDate(d);
+  if (granularity === "weekly") return weekKey(d);
+  if (granularity === "monthly") return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  if (granularity === "quarterly") return `${d.getUTCFullYear()}-Q${Math.floor(d.getUTCMonth() / 3) + 1}`;
+  return String(d.getUTCFullYear());
+}
+
+function parsePeriodStart(period: string, granularity: ChartGranularity): Date | null {
+  if (granularity === "daily") return /^\d{4}-\d{2}-\d{2}$/.test(period) ? parseIsoDate(period) : null;
+  if (granularity === "weekly") {
+    const m = /^(\d{4})-W(\d{2})$/.exec(period);
+    if (!m) return null;
+    const year = Number(m[1]);
+    const week = Number(m[2]);
+    const jan1 = new Date(Date.UTC(year, 0, 1));
+    if (week === 0) return jan1;
+    const jan1WeekdayMon0 = (jan1.getUTCDay() + 6) % 7;
+    const daysToFirstMonday = jan1WeekdayMon0 === 0 ? 0 : 7 - jan1WeekdayMon0;
+    const firstMonday = new Date(jan1);
+    firstMonday.setUTCDate(jan1.getUTCDate() + daysToFirstMonday + (week - 1) * 7);
+    return firstMonday;
+  }
+  if (granularity === "monthly") {
+    const m = /^(\d{4})-(\d{2})$/.exec(period);
+    return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1)) : null;
+  }
+  if (granularity === "quarterly") {
+    const m = /^(\d{4})-Q([1-4])$/.exec(period);
+    return m ? new Date(Date.UTC(Number(m[1]), (Number(m[2]) - 1) * 3, 1)) : null;
+  }
+  if (/^\d{4}$/.test(period)) return new Date(Date.UTC(Number(period), 0, 1));
+  return null;
+}
+
 function InteractiveCategoryBarWidget({
   filters,
   globalControls,
   widgetState,
   setWidgetState,
 }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [granularity, setGranularity] = useState<
     "daily" | "weekly" | "monthly" | "quarterly" | "yearly"
   >(
@@ -78,8 +174,15 @@ function InteractiveCategoryBarWidget({
   const [showTotalExpenses, setShowTotalExpenses] = useState<boolean>(
     Boolean(widgetState?.showTotalExpenses ?? false)
   );
+  const [showEmptyPeriods, setShowEmptyPeriods] = useState<boolean>(
+    widgetState?.showEmptyPeriods === undefined ? true : Boolean(widgetState?.showEmptyPeriods)
+  );
+  const [windowBounds, setWindowBounds] = useState<{ min_date: string | null; max_date: string | null }>({
+    min_date: null,
+    max_date: null,
+  });
 
-  const colorPalette = ["#2563eb", "#7c3aed", "#db2777", "#ea580c", "#16a34a", "#0891b2", "#4f46e5", "#c026d3"];
+  const colorPalette = chartColors.palette;
 
   useEffect(() => {
     try {
@@ -115,6 +218,16 @@ function InteractiveCategoryBarWidget({
 
   useEffect(() => {
     api
+      .getTransactionBounds({
+        account_id: filters.accountId ?? undefined,
+        person_id: filters.personId ?? undefined,
+      })
+      .then((b) => setWindowBounds({ min_date: b.min_date, max_date: b.max_date }))
+      .catch(() => setWindowBounds({ min_date: null, max_date: null }));
+  }, [filters.accountId, filters.personId]);
+
+  useEffect(() => {
+    api
       .getAnalyticsTimeseries({
         ...toAnalyticsParams(filters),
         granularity,
@@ -136,6 +249,7 @@ function InteractiveCategoryBarWidget({
       includeTransfers,
       chartType,
       showTotalExpenses,
+      showEmptyPeriods,
     });
   }, [
     chartType,
@@ -147,6 +261,7 @@ function InteractiveCategoryBarWidget({
     showAdvanced,
     showControls,
     showTotalExpenses,
+    showEmptyPeriods,
     topN,
   ]);
 
@@ -172,6 +287,68 @@ function InteractiveCategoryBarWidget({
     });
   }, [rows, selectedCategoryIds]);
 
+  const chartRows = useMemo(() => {
+    if (!showEmptyPeriods || !preparedRows.length) return preparedRows;
+
+    const startStr =
+      filters.dateRange.start ?? windowBounds.min_date ?? null;
+    const endStr =
+      filters.dateRange.end ?? windowBounds.max_date ?? null;
+
+    let rangeStart = startStr ? parseIsoDate(startStr) : null;
+    let rangeEnd = endStr ? parseIsoDate(endStr) : null;
+
+    if (!rangeStart || !rangeEnd) {
+      const parsed = preparedRows
+        .map((row) => parsePeriodStart(String(row.period), granularity))
+        .filter((d): d is Date => d !== null)
+        .sort((a, b) => a.getTime() - b.getTime());
+      if (!rangeStart) rangeStart = parsed[0] ?? null;
+      if (!rangeEnd) rangeEnd = parsed[parsed.length - 1] ?? null;
+    }
+    if (!rangeStart || !rangeEnd) return preparedRows;
+
+    const byPeriod = new Map(
+      preparedRows.map((row) => [String(row.period), row])
+    );
+    const selectedKeys =
+      mode === "combined"
+        ? ["selectedCombined"]
+        : selectedCategoryIds.map((id) => `cat_${id}`);
+    const dense: Array<Record<string, string | number>> = [];
+
+    let cursor = startOfPeriod(rangeStart, granularity);
+    const endBoundary = rangeEnd.getTime();
+    while (cursor.getTime() <= endBoundary) {
+      const key = periodKey(cursor, granularity);
+      const existing = byPeriod.get(key);
+      if (existing) {
+        dense.push(existing);
+      } else {
+        const emptyRow: Record<string, string | number> = {
+          period: key,
+          income: 0,
+          expenses: 0,
+          selectedCombined: 0,
+        };
+        for (const seriesKey of selectedKeys) emptyRow[seriesKey] = 0;
+        dense.push(emptyRow);
+      }
+      cursor = addPeriod(cursor, granularity);
+    }
+    return dense;
+  }, [
+    filters.dateRange.end,
+    filters.dateRange.start,
+    granularity,
+    preparedRows,
+    mode,
+    selectedCategoryIds,
+    showEmptyPeriods,
+    windowBounds.max_date,
+    windowBounds.min_date,
+  ]);
+
   const filteredCategoryOptions = useMemo(() => {
     const base = [...categoryOptions].sort((a, b) => b.total - a.total).slice(0, topN);
     const total = base.reduce((sum, item) => sum + item.total, 0);
@@ -190,7 +367,7 @@ function InteractiveCategoryBarWidget({
         {
           key: "selectedCombined",
           name: "Selected categories (combined)",
-          color: "#2563eb",
+          color: chartColors.net,
         },
       ];
     }
@@ -199,17 +376,17 @@ function InteractiveCategoryBarWidget({
       name: categoryById.get(categoryId)?.category_name ?? `Category ${categoryId}`,
       color: colorPalette[idx % colorPalette.length],
     }));
-  }, [mode, selectedCategoryIds, categoryById, colorPalette]);
+  }, [mode, selectedCategoryIds, categoryById, colorPalette, chartColors.net]);
 
   const showExpenseComparison = showTotalExpenses && selectedCategoryIds.length > 0;
 
   const averageReference = useMemo(() => {
-    if (!preparedRows.length || !selectedSeries.length) return null;
+    if (!chartRows.length || !selectedSeries.length) return null;
     const targetKey =
       mode === "combined" || selectedSeries.length === 1
         ? selectedSeries[0].key
         : "selectedCombined";
-    const values = preparedRows.map((row) => Number(row[targetKey] ?? row.selectedCombined ?? 0));
+    const values = chartRows.map((row) => Number(row[targetKey] ?? row.selectedCombined ?? 0));
     if (!values.length) return null;
     const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
     if (!Number.isFinite(mean)) return null;
@@ -217,7 +394,7 @@ function InteractiveCategoryBarWidget({
       value: mean,
       label: `Avg (${values.length} periods): ${formatCurrency(mean)}`,
     };
-  }, [preparedRows, selectedSeries, mode, granularity]);
+  }, [chartRows, selectedSeries, mode, granularity]);
 
   useEffect(() => {
     if (!filteredCategoryOptions.length) return;
@@ -353,6 +530,14 @@ function InteractiveCategoryBarWidget({
             />
             Show total expenses (compare)
           </label>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={showEmptyPeriods}
+              onChange={(e) => setShowEmptyPeriods(e.target.checked)}
+            />
+            Show empty periods
+          </label>
         </ControlsSection>
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 p-2">
           <input
@@ -389,14 +574,14 @@ function InteractiveCategoryBarWidget({
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           {chartType === "bar" ? (
-            <BarChart data={preparedRows}>
+            <BarChart data={chartRows}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="period" />
               <YAxis />
               <Tooltip formatter={(value) => formatCurrency(Number(value))} />
               <Legend />
               {showExpenseComparison && (
-                <Bar dataKey="expenses" fill="#ef4444" name="Total expenses" />
+                <Bar dataKey="expenses" fill={chartColors.expenses} name="Total expenses" />
               )}
               {selectedSeries.map((series) => (
                 <Bar
@@ -410,19 +595,19 @@ function InteractiveCategoryBarWidget({
               {averageReference && (
                 <ReferenceLine
                   y={averageReference.value}
-                  stroke="#64748b"
+                  stroke={chartColors.reference}
                   strokeDasharray="4 4"
                   label={{
                     value: averageReference.label,
                     position: "insideTopRight",
                     fontSize: 11,
-                    fill: "#64748b",
+                    fill: chartColors.reference,
                   }}
                 />
               )}
             </BarChart>
           ) : (
-            <LineChart data={preparedRows}>
+            <LineChart data={chartRows}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="period" />
               <YAxis />
@@ -433,7 +618,7 @@ function InteractiveCategoryBarWidget({
                   type="monotone"
                   dataKey="expenses"
                   name="Total expenses"
-                  stroke="#ef4444"
+                  stroke={chartColors.expenses}
                   strokeWidth={2}
                   dot={false}
                 />
@@ -452,13 +637,13 @@ function InteractiveCategoryBarWidget({
               {averageReference && (
                 <ReferenceLine
                   y={averageReference.value}
-                  stroke="#64748b"
+                  stroke={chartColors.reference}
                   strokeDasharray="4 4"
                   label={{
                     value: averageReference.label,
                     position: "insideTopRight",
                     fontSize: 11,
-                    fill: "#64748b",
+                    fill: chartColors.reference,
                   }}
                 />
               )}

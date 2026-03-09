@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type AnalyticsTimeseriesPoint } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
 function SpendingHeatmapWidget({ filters }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   useEffect(() => {
     api.getAnalyticsTimeseries({ ...toAnalyticsParams(filters), granularity: "daily" })
@@ -27,7 +29,7 @@ function SpendingHeatmapWidget({ filters }: WidgetProps) {
           <div
             key={row.period}
             className="rounded p-2 text-[10px]"
-            style={{ backgroundColor: `rgba(239, 68, 68, ${Math.max(0.12, intensity)})` }}
+            style={{ backgroundColor: `rgba(${chartColors.heatmapBase}, ${Math.max(0.12, intensity)})` }}
             title={`${row.period}: ${formatCurrency(row.expenses)}`}
           >
             {row.period.slice(-2)}

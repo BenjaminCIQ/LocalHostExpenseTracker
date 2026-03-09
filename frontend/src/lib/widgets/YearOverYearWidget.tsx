@@ -9,12 +9,14 @@ import {
   YAxis,
 } from "recharts";
 import { api, type AnalyticsTimeseriesPoint } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
 function YearOverYearWidget({ filters }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   useEffect(() => {
     api.getAnalyticsTimeseries({ ...toAnalyticsParams(filters), granularity: "monthly" })
@@ -40,7 +42,12 @@ function YearOverYearWidget({ filters }: WidgetProps) {
           <YAxis />
           <Tooltip formatter={(v) => formatCurrency(Number(v))} />
           {yearKeys.map((year, idx) => (
-            <Bar key={year} dataKey={year} fill={idx === 0 ? "#93c5fd" : "#2563eb"} />
+            <Bar
+              key={year}
+              dataKey={year}
+              fill={idx === 0 ? chartColors.palette[1] : chartColors.net}
+              fillOpacity={idx === 0 ? 0.65 : 1}
+            />
           ))}
         </BarChart>
       </ResponsiveContainer>

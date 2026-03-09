@@ -85,3 +85,70 @@ def test_net_worth_includes_external_items(client):
     body = res.json()
     assert "external_items" in body
     assert any(item["external_account_id"] == external_id for item in body["external_items"])
+
+
+def test_external_funding_summary_with_filters(client):
+    ext = client.post(
+        "/api/external-accounts/",
+        json={"name": "Brokerage 2", "account_type": "investment", "account_group": "asset"},
+    )
+    assert ext.status_code == 201
+    external_id = ext.json()["id"]
+
+    out_txn = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-12",
+            "amount": -450.0,
+            "description": "Transfer to brokerage",
+            "merchant": "Bank",
+            "currency": "EUR",
+        },
+    )
+    assert out_txn.status_code == 201
+    out_txn_id = out_txn.json()["id"]
+
+    in_txn = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-20",
+            "amount": 120.0,
+            "description": "Transfer back from brokerage",
+            "merchant": "Bank",
+            "currency": "EUR",
+        },
+    )
+    assert in_txn.status_code == 201
+    in_txn_id = in_txn.json()["id"]
+
+    link_out = client.post(
+        f"/api/external-accounts/{external_id}/funding-links",
+        json={
+            "transaction_id": out_txn_id,
+            "linked_amount": 450.0,
+            "link_type": "funding_in",
+            "override_validation": True,
+        },
+    )
+    assert link_out.status_code == 201
+
+    link_in = client.post(
+        f"/api/external-accounts/{external_id}/funding-links",
+        json={
+            "transaction_id": in_txn_id,
+            "linked_amount": 120.0,
+            "link_type": "funding_out",
+            "override_validation": True,
+        },
+    )
+    assert link_in.status_code == 201
+
+    summary = client.get("/api/external-accounts/funding-summary?month=2026-01")
+    assert summary.status_code == 200
+    payload = summary.json()
+    assert payload["funding_in_total"] == 450.0
+    assert payload["funding_out_total"] == 120.0
+    assert payload["net_external_flow"] == 330.0
+    assert payload["links_count"] >= 2

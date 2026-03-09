@@ -9,11 +9,13 @@ import {
   YAxis,
 } from "recharts";
 import { api, type MonthlyTotals } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import type { WidgetProps } from "@/lib/widgets/types";
 
 function MonthlyBarWidget({ filters }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [rows, setRows] = useState<MonthlyTotals[]>([]);
   useEffect(() => {
     api
@@ -31,8 +33,8 @@ function MonthlyBarWidget({ filters }: WidgetProps) {
           <XAxis dataKey="month" />
           <YAxis />
           <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-          <Bar dataKey="income" fill="#22c55e" />
-          <Bar dataKey="expenses" fill="#ef4444" />
+          <Bar dataKey="income" fill={chartColors.income} />
+          <Bar dataKey="expenses" fill={chartColors.expenses} />
         </BarChart>
       </ResponsiveContainer>
     </div>

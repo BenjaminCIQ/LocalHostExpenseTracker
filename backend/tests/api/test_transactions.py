@@ -176,7 +176,17 @@ def test_suggest_field_updates_returns_operator_candidates(client):
     # Ensure we don't suggest the seed txn itself
     assert all(i["transaction_id"] != seed["id"] for i in items)
     # Extended metadata should be present for UI review.
-    assert all("reasons" in i and "matched_fields" in i and "is_classified" in i for i in items)
+    assert all(
+        "reasons" in i
+        and "matched_fields" in i
+        and "score_components" in i
+        and "is_classified" in i
+        and "ml_suggested_merchant" in i
+        and "ml_merchant_confidence" in i
+        and "ml_suggested_description" in i
+        and "ml_description_confidence" in i
+        for i in items
+    )
 
 
 def test_transfer_link_and_filter_behavior(client):

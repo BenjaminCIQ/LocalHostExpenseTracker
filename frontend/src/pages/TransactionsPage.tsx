@@ -261,6 +261,7 @@ export default function TransactionsPage() {
   const [editDescription, setEditDescription] = useState<string>("");
   const [editRawDescription, setEditRawDescription] = useState<string>("");
   const [editCurrency, setEditCurrency] = useState<string>("EUR");
+  const [editMerchantSuggestions, setEditMerchantSuggestions] = useState<string[]>([]);
   const [editSaving, setEditSaving] = useState(false);
 
   const [applySimilarOpen, setApplySimilarOpen] = useState(false);
@@ -275,6 +276,8 @@ export default function TransactionsPage() {
     raw_description: string;
   }>({ merchant: "", description: "", raw_description: "" });
   const [applySimilarLoading, setApplySimilarLoading] = useState(false);
+  const [applySimilarInfo, setApplySimilarInfo] = useState<string>("");
+  const [applySimilarMinScore, setApplySimilarMinScore] = useState<number>(85);
   const [applyFieldMerchant, setApplyFieldMerchant] = useState(true);
   const [applyFieldDescription, setApplyFieldDescription] = useState(false);
   const [applyFieldRawDescription, setApplyFieldRawDescription] = useState(false);
@@ -305,6 +308,7 @@ export default function TransactionsPage() {
   const [manualDate, setManualDate] = useState<string>("");
   const [manualAmount, setManualAmount] = useState<number>(0);
   const [manualMerchant, setManualMerchant] = useState<string>("");
+  const [manualMerchantSuggestions, setManualMerchantSuggestions] = useState<string[]>([]);
   const [manualDescription, setManualDescription] = useState<string>("");
   const [manualCurrency, setManualCurrency] = useState<string>("EUR");
   const [manualSaving, setManualSaving] = useState(false);
@@ -474,6 +478,68 @@ export default function TransactionsPage() {
     const cats = await api.getCategories();
     setCategories(cats);
   };
+
+  useEffect(() => {
+    if (editOpenTxnId === null) {
+      setEditMerchantSuggestions([]);
+      return;
+    }
+    const q = editMerchant.trim();
+    if (!q) {
+      setEditMerchantSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      api
+        .getMerchantSuggestions(q, 12)
+        .then((items) => setEditMerchantSuggestions(items))
+        .catch(() => setEditMerchantSuggestions([]));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [editMerchant, editOpenTxnId]);
+
+  useEffect(() => {
+    if (!manualOpen) {
+      setManualMerchantSuggestions([]);
+      return;
+    }
+    const q = manualMerchant.trim();
+    if (!q) {
+      setManualMerchantSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      api
+        .getMerchantSuggestions(q, 12)
+        .then((items) => setManualMerchantSuggestions(items))
+        .catch(() => setManualMerchantSuggestions([]));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [manualMerchant, manualOpen]);
+
+  const loadApplySimilarCandidates = useCallback(
+    async (seedId: number, minScore: number) => {
+      setApplySimilarLoading(true);
+      try {
+        const candidates = await api.suggestFieldUpdates(seedId, {
+          limit: 50,
+          min_score: minScore,
+          only_unclassified: false,
+          exclude_already_matching: true,
+        });
+        setApplySimilarCandidates(candidates);
+        setApplySimilarSelected(new Set(candidates.map((c) => c.transaction_id)));
+        setApplySimilarInfo(
+          candidates.length
+            ? `Found ${candidates.length} match(es) at threshold >= ${minScore}.`
+            : `No similar transactions found at threshold >= ${minScore}. Try lowering the threshold.`
+        );
+      } finally {
+        setApplySimilarLoading(false);
+      }
+    },
+    []
+  );
 
   const handleClassify = async (
     txnId: number,
@@ -1140,7 +1206,7 @@ export default function TransactionsPage() {
                                         variant="outline"
                                         disabled={editSaving || applySimilarLoading}
                                         onClick={async () => {
-                                          setApplySimilarLoading(true);
+                                          setApplySimilarInfo("");
                                           try {
                                             // Save current edits first, so suggestions use the corrected seed fields.
                                             await api.updateTransaction(txn.id, {
@@ -1150,12 +1216,6 @@ export default function TransactionsPage() {
                                               description: editDescription,
                                               raw_description: editRawDescription,
                                               currency: editCurrency,
-                                            });
-
-                                            const candidates = await api.suggestFieldUpdates(txn.id, {
-                                              limit: 50,
-                                              min_score: 85,
-                                              only_unclassified: false,
                                             });
 
                                             const op = detectOperatorToken(
@@ -1176,11 +1236,12 @@ export default function TransactionsPage() {
                                               description: editDescription,
                                               raw_description: editRawDescription,
                                             });
-                                            setApplySimilarCandidates(candidates);
-                                            setApplySimilarSelected(
-                                              new Set(candidates.map((c) => c.transaction_id))
+                                            // Always open modal so users get explicit feedback.
+                                            setApplySimilarOpen(true);
+                                            await loadApplySimilarCandidates(
+                                              txn.id,
+                                              applySimilarMinScore
                                             );
-                                            setApplySimilarOpen(candidates.length > 0);
                                             load();
                                           } catch (e) {
                                             setError(
@@ -1188,8 +1249,6 @@ export default function TransactionsPage() {
                                                 ? e.message
                                                 : "Failed to fetch suggestions"
                                             );
-                                          } finally {
-                                            setApplySimilarLoading(false);
                                           }
                                         }}
                                       >
@@ -1312,9 +1371,15 @@ export default function TransactionsPage() {
                                     </label>
                                     <input
                                       className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                                      list="merchant-suggestions-list"
                                       value={editMerchant}
                                       onChange={(e) => setEditMerchant(e.target.value)}
                                     />
+                                    <datalist id="merchant-suggestions-list">
+                                      {editMerchantSuggestions.map((name) => (
+                                        <option key={name} value={name} />
+                                      ))}
+                                    </datalist>
                                   </div>
                                   <div className="md:col-span-1">
                                     <label className="text-xs text-muted-foreground">
@@ -1646,10 +1711,16 @@ export default function TransactionsPage() {
                   <label className="text-sm text-muted-foreground">Merchant</label>
                   <input
                     className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                    list="manual-merchant-suggestions-list"
                     value={manualMerchant}
                     onChange={(e) => setManualMerchant(e.target.value)}
                     placeholder="Optional"
                   />
+                  <datalist id="manual-merchant-suggestions-list">
+                    {manualMerchantSuggestions.map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                  </datalist>
                 </div>
                 <div>
                   <label className="text-sm text-muted-foreground">Currency</label>
@@ -1714,8 +1785,8 @@ export default function TransactionsPage() {
       )}
 
       {applySimilarOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-3xl mx-4">
+        <div className="fixed inset-0 bg-black/40 z-50 overflow-y-auto p-4">
+          <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-3xl mx-auto my-2 max-h-[92vh] flex flex-col">
             <div className="p-4 border-b border-border flex items-center justify-between">
               <div>
                 <div className="text-lg font-semibold">Apply edits to similar</div>
@@ -1734,7 +1805,12 @@ export default function TransactionsPage() {
                 Close
               </Button>
             </div>
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-3 overflow-y-auto">
+              {applySimilarInfo && (
+                <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  {applySimilarInfo}
+                </div>
+              )}
               {applySimilarSelected.size > 0 &&
                 (() => {
                   const selectedClassified = applySimilarCandidates.filter(
@@ -1778,6 +1854,35 @@ export default function TransactionsPage() {
                   </label>
                 </div>
                 <div className="flex gap-2">
+                  <div className="flex items-center gap-2 rounded-md border border-border px-2 py-1">
+                    <label className="text-xs text-muted-foreground">
+                      Threshold
+                    </label>
+                    <input
+                      type="range"
+                      min={40}
+                      max={95}
+                      step={1}
+                      value={applySimilarMinScore}
+                      onChange={(e) => setApplySimilarMinScore(Number(e.target.value))}
+                    />
+                    <span className="w-8 text-right font-mono text-xs">
+                      {applySimilarMinScore}
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    disabled={applySimilarLoading || applySimilarSeedId === null}
+                    onClick={async () => {
+                      if (applySimilarSeedId === null) return;
+                      await loadApplySimilarCandidates(
+                        applySimilarSeedId,
+                        applySimilarMinScore
+                      );
+                    }}
+                  >
+                    Refresh matches
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={() =>
@@ -1805,6 +1910,7 @@ export default function TransactionsPage() {
                       <th className="p-2 text-left">Status</th>
                       <th className="p-2 text-left">Merchant</th>
                       <th className="p-2 text-left">Description</th>
+                      <th className="p-2 text-left">ML suggestion</th>
                       <th className="p-2 text-left">Match reason</th>
                       <th className="p-2 text-right">Score</th>
                     </tr>
@@ -1837,15 +1943,42 @@ export default function TransactionsPage() {
                         <td className="p-2 max-w-md truncate" title={c.current_description}>
                           {c.current_description}
                         </td>
+                        <td className="p-2 max-w-sm">
+                          <div className="space-y-1">
+                            <div className="truncate text-xs" title={c.ml_suggested_merchant ?? ""}>
+                              M: {c.ml_suggested_merchant ?? "-"}
+                              {typeof c.ml_merchant_confidence === "number" && (
+                                <span className="ml-1 text-muted-foreground">
+                                  ({Math.round(c.ml_merchant_confidence * 100)}%)
+                                </span>
+                              )}
+                            </div>
+                            <div className="truncate text-xs" title={c.ml_suggested_description ?? ""}>
+                              D: {c.ml_suggested_description ?? "-"}
+                              {typeof c.ml_description_confidence === "number" && (
+                                <span className="ml-1 text-muted-foreground">
+                                  ({Math.round(c.ml_description_confidence * 100)}%)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
                         <td className="p-2 max-w-xs truncate" title={c.reasons.join(", ")}>
-                          {(c.reasons.length ? c.reasons : [c.reason]).join(", ")}
+                          {(c.reasons.length ? c.reasons : [c.reason]).join(", ")}{" "}
+                          {Object.keys(c.score_components ?? {}).length > 0 && (
+                            <span className="text-muted-foreground">
+                              [{Object.entries(c.score_components)
+                                .map(([k, v]) => `${k}:${Math.round(v)}`)
+                                .join(" | ")}]
+                            </span>
+                          )}
                         </td>
                         <td className="p-2 text-right font-mono">{c.score.toFixed(0)}</td>
                       </tr>
                     ))}
                     {applySimilarCandidates.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="p-6 text-center text-muted-foreground">
+                        <td colSpan={7} className="p-6 text-center text-muted-foreground">
                           No candidates found.
                         </td>
                       </tr>

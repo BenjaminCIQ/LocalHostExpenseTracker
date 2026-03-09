@@ -127,6 +127,7 @@ class SuggestFieldUpdateCandidate(BaseModel):
     reason: str
     reasons: list[str] = Field(default_factory=list)
     matched_fields: list[str] = Field(default_factory=list)
+    score_components: dict[str, float] = Field(default_factory=dict)
     is_classified: bool = False
     current_merchant: str
     current_description: str
@@ -134,6 +135,10 @@ class SuggestFieldUpdateCandidate(BaseModel):
     suggested_merchant: str | None
     suggested_description: str | None
     suggested_raw_description: str | None
+    ml_suggested_merchant: str | None = None
+    ml_merchant_confidence: float | None = None
+    ml_suggested_description: str | None = None
+    ml_description_confidence: float | None = None
 
 
 class TransferCandidate(BaseModel):

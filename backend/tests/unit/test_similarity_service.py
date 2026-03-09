@@ -176,3 +176,47 @@ def test_similarity_service_uses_learned_alias(seeded_db):
     assert matched is not None
     assert "canonical_merchant_match" in matched.reasons
 
+
+def test_similarity_service_amzn_seed_merchant_amazon_matches_tokens(seeded_db):
+    seed = Transaction(
+        account_id=1,
+        import_batch_id=None,
+        date=date(2026, 5, 1),
+        amount=-43.12,
+        raw_description="AMZN Mktp DE*RC0QQ4DZ4 800-279-6620 LU",
+        description="AMZN Mktp order RC0QQ4DZ4",
+        merchant="AMAZON",
+        currency="EUR",
+        dedup_hash="unit-test-amzn-seed",
+        final_category_id=1,
+        classification_source="human",
+        confidence=1.0,
+    )
+    candidate = Transaction(
+        account_id=1,
+        import_batch_id=None,
+        date=date(2026, 5, 4),
+        amount=-43.10,
+        raw_description="AMZN Mktp DE*7Y6QQ4DZ4 800-279-6620 LU",
+        description="AMZN Mktp order 7Y6QQ4DZ4",
+        merchant="",
+        currency="EUR",
+        dedup_hash="unit-test-amzn-candidate",
+        predicted_category_id=None,
+        final_category_id=None,
+        classification_source=None,
+        confidence=None,
+    )
+    seeded_db.add_all([seed, candidate])
+    seeded_db.commit()
+
+    results = find_similar(
+        seeded_db,
+        seed.id,
+        limit=10,
+        min_score=50,
+        only_unclassified=False,
+    )
+    ids = [r.transaction_id for r in results]
+    assert candidate.id in ids
+

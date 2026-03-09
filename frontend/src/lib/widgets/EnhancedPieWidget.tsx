@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { api, type ExternalNetWorthItem, type NetWorthItem } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import type { WidgetProps } from "@/lib/widgets/types";
 
-const COLORS = ["#3b82f6", "#a855f7", "#f97316", "#10b981", "#f43f5e", "#14b8a6"];
-
 function EnhancedPieWidget({ filters }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [items, setItems] = useState<NetWorthItem[]>([]);
   const [externalItems, setExternalItems] = useState<ExternalNetWorthItem[]>([]);
   useEffect(() => {
@@ -43,7 +43,7 @@ function EnhancedPieWidget({ filters }: WidgetProps) {
         <PieChart>
           <Pie data={grouped} dataKey="total" nameKey="name" innerRadius={55} outerRadius={95}>
             {grouped.map((row, idx) => (
-              <Cell key={row.name} fill={COLORS[idx % COLORS.length]} />
+              <Cell key={row.name} fill={chartColors.palette[idx % chartColors.palette.length]} />
             ))}
           </Pie>
           <Tooltip formatter={(v) => formatCurrency(Number(v))} />

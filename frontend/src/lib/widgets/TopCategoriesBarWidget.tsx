@@ -9,11 +9,13 @@ import {
   YAxis,
 } from "recharts";
 import { api, type Dashboard } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import type { WidgetProps } from "@/lib/widgets/types";
 
 function TopCategoriesBarWidget({ filters }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [data, setData] = useState<Dashboard | null>(null);
   useEffect(() => {
     api
@@ -45,7 +47,7 @@ function TopCategoriesBarWidget({ filters }: WidgetProps) {
           <XAxis type="number" />
           <YAxis dataKey="category_name" type="category" width={140} />
           <Tooltip formatter={(v) => formatCurrency(Number(v))} />
-          <Bar dataKey="total" fill="#2563eb" />
+          <Bar dataKey="total" fill={chartColors.net} />
         </BarChart>
       </ResponsiveContainer>
     </div>

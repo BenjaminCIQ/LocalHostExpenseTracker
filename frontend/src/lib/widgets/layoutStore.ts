@@ -5,13 +5,15 @@ const KEY_PREFIX = "widget-layout";
 const pageDefaults: Record<PageId, LayoutEntry[]> = {
   overview: [
     { widgetId: "kpi-cards", size: "full", order: 1 },
-    { widgetId: "snapshot", size: "full", order: 2 },
-    { widgetId: "monthly-bar", size: "lg", order: 3 },
-    { widgetId: "category-pie", size: "lg", order: 4 },
-    { widgetId: "top-categories", size: "lg", order: 5 },
-    { widgetId: "expense-highlights", size: "lg", order: 6 },
-    { widgetId: "person-comparison", size: "full", order: 7 },
-    { widgetId: "budget-status", size: "full", order: 8 },
+    { widgetId: "external-funding-context", size: "full", order: 2 },
+    { widgetId: "net-worth-snapshot", size: "full", order: 3 },
+    { widgetId: "snapshot", size: "full", order: 4 },
+    { widgetId: "monthly-bar", size: "lg", order: 5 },
+    { widgetId: "category-pie", size: "lg", order: 6 },
+    { widgetId: "top-categories", size: "lg", order: 7 },
+    { widgetId: "expense-highlights", size: "lg", order: 8 },
+    { widgetId: "person-comparison", size: "full", order: 9 },
+    { widgetId: "budget-status", size: "full", order: 10 },
   ],
   analytics: [
     { widgetId: "interactive-category-bar", size: "full", order: 1 },

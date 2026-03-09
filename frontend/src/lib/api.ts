@@ -150,6 +150,7 @@ export interface SuggestFieldUpdateCandidate {
   reason: string;
   reasons: string[];
   matched_fields: string[];
+  score_components: Record<string, number>;
   is_classified: boolean;
   current_merchant: string;
   current_description: string;
@@ -157,6 +158,10 @@ export interface SuggestFieldUpdateCandidate {
   suggested_merchant: string | null;
   suggested_description: string | null;
   suggested_raw_description: string | null;
+  ml_suggested_merchant: string | null;
+  ml_merchant_confidence: number | null;
+  ml_suggested_description: string | null;
+  ml_description_confidence: number | null;
 }
 
 export interface BulkUpdateFieldsResponse {
@@ -319,6 +324,13 @@ export interface ExternalReconciliation {
   latest_value: number | null;
   linked_funding_total: number;
   unlinked_component: number | null;
+  links_count: number;
+}
+
+export interface ExternalFundingSummary {
+  funding_in_total: number;
+  funding_out_total: number;
+  net_external_flow: number;
   links_count: number;
 }
 
@@ -554,6 +566,12 @@ export const api = {
     return request<SimilarTransactionCandidate[]>(`/transactions/${id}/similar${suffix}`);
   },
   getTransactionRaw: (id: number) => request<TransactionRaw>(`/transactions/${id}/raw`),
+  getMerchantSuggestions: (q: string, limit = 20) => {
+    const qs = new URLSearchParams();
+    qs.set("q", q);
+    qs.set("limit", String(limit));
+    return request<string[]>(`/transactions/merchant-suggestions?${qs.toString()}`);
+  },
 
   createManualTransaction: (payload: TransactionManualCreate) =>
     request<Transaction>(`/transactions/manual`, {
@@ -588,11 +606,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ transaction_id }),
     }),
-  suggestFieldUpdates: (id: number, params?: { limit?: number; min_score?: number; only_unclassified?: boolean }) => {
+  suggestFieldUpdates: (id: number, params?: { limit?: number; min_score?: number; only_unclassified?: boolean; exclude_already_matching?: boolean }) => {
     const qs = new URLSearchParams();
     if (params?.limit) qs.set("limit", String(params.limit));
     if (params?.min_score !== undefined) qs.set("min_score", String(params.min_score));
     if (params?.only_unclassified !== undefined) qs.set("only_unclassified", String(params.only_unclassified));
+    if (params?.exclude_already_matching !== undefined) qs.set("exclude_already_matching", String(params.exclude_already_matching));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<SuggestFieldUpdateCandidate[]>(`/transactions/${id}/suggest-field-updates${suffix}`);
   },
@@ -889,6 +908,22 @@ export const api = {
     }),
   getExternalReconciliation: (externalAccountId: number) =>
     request<ExternalReconciliation>(`/external-accounts/${externalAccountId}/reconciliation`),
+  getExternalFundingSummary: (params?: {
+    month?: string;
+    startDate?: string;
+    endDate?: string;
+    accountId?: number;
+    personId?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.month) qs.set("month", params.month);
+    if (params?.startDate) qs.set("start_date", params.startDate);
+    if (params?.endDate) qs.set("end_date", params.endDate);
+    if (params?.accountId) qs.set("account_id", String(params.accountId));
+    if (params?.personId) qs.set("person_id", String(params.personId));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<ExternalFundingSummary>(`/external-accounts/funding-summary${suffix}`);
+  },
   getRecurring: (params?: {
     startDate?: string;
     endDate?: string;

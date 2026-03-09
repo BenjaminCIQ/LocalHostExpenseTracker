@@ -3,11 +3,13 @@ import { ResponsiveSankey } from "@nivo/sankey";
 import { ControlsSection } from "@/components/widget-controls/ControlsSection";
 import { ThresholdSlider } from "@/components/widget-controls/ThresholdSlider";
 import { api, type SankeyLink, type SankeyNode } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
 function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [nodes, setNodes] = useState<SankeyNode[]>([]);
   const [links, setLinks] = useState<SankeyLink[]>([]);
   const [showControls, setShowControls] = useState<boolean>(
@@ -149,7 +151,7 @@ function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
         data={{ nodes: chartNodes, links: chartLinks }}
         margin={{ top: 20, right: 140, bottom: 20, left: 140 }}
         align="justify"
-        colors={{ scheme: "category10" }}
+        colors={chartColors.palette}
         nodeOpacity={0.95}
         nodeThickness={18}
         nodeSpacing={12}

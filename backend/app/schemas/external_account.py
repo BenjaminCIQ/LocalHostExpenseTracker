@@ -97,3 +97,10 @@ class ExternalReconciliationRead(BaseModel):
     linked_funding_total: float
     unlinked_component: float | None
     links_count: int
+
+
+class ExternalFundingSummaryRead(BaseModel):
+    funding_in_total: float
+    funding_out_total: float
+    net_external_flow: float
+    links_count: int

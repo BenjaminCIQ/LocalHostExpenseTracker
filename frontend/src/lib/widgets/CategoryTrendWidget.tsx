@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { api, type AnalyticsTimeseriesPoint } from "@/lib/api";
 import { ControlsSection } from "@/components/widget-controls/ControlsSection";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
@@ -22,6 +23,7 @@ function CategoryTrendWidget({
   widgetState,
   setWidgetState,
 }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   const [showControls, setShowControls] = useState<boolean>(
     Boolean(widgetState?.showControls ?? false)
@@ -151,11 +153,11 @@ function CategoryTrendWidget({
             <YAxis />
             <Tooltip formatter={(v) => formatCurrency(Number(v))} />
             <Legend />
-            {showIncome ? <Line type="monotone" dataKey="income" stroke="#22c55e" /> : null}
+            {showIncome ? <Line type="monotone" dataKey="income" stroke={chartColors.income} /> : null}
             {showExpenses ? (
-              <Line type="monotone" dataKey="expenses" stroke="#ef4444" />
+              <Line type="monotone" dataKey="expenses" stroke={chartColors.expenses} />
             ) : null}
-            {showNet ? <Line type="monotone" dataKey="net" stroke="#2563eb" /> : null}
+            {showNet ? <Line type="monotone" dataKey="net" stroke={chartColors.net} /> : null}
           </LineChart>
         </ResponsiveContainer>
       </div>

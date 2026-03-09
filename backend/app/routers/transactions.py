@@ -7,8 +7,9 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_classifier, get_pipeline
+from app.deps import get_classifier, get_name_suggester, get_pipeline
 from app.ml.classifier import MLClassifier
+from app.ml.name_suggester import CanonicalNameSuggester
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.trip import Trip, TripTransactionOverride
@@ -346,6 +347,31 @@ def get_transaction_bounds(
         "max_amount": float(max_amount) if max_amount is not None else None,
     }
 
+
+@router.get("/merchant-suggestions", response_model=list[str])
+def get_merchant_suggestions(
+    q: str = Query("", description="Prefix query for merchant name suggestions"),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    query_text = (q or "").strip()
+    if not query_text:
+        return []
+    like = f"{query_text.lower()}%"
+    rows = (
+        db.query(Transaction.merchant, func.count(Transaction.id).label("freq"))
+        .filter(
+            Transaction.merchant.isnot(None),
+            Transaction.merchant != "",
+            func.lower(Transaction.merchant).like(like),
+        )
+        .group_by(Transaction.merchant)
+        .order_by(func.count(Transaction.id).desc(), Transaction.merchant.asc())
+        .limit(limit)
+        .all()
+    )
+    return [merchant for merchant, _freq in rows if merchant]
+
 @router.get("/{transaction_id}/similar", response_model=list[SimilarTransactionCandidate])
 def get_similar_transactions(
     transaction_id: int,
@@ -391,7 +417,9 @@ def suggest_field_updates(
     limit: int = Query(25, ge=1, le=200),
     min_score: int = Query(85, ge=0, le=100),
     only_unclassified: bool = Query(True),
+    exclude_already_matching: bool = Query(False),
     db: Session = Depends(get_db),
+    name_suggester: CanonicalNameSuggester = Depends(get_name_suggester),
 ):
     seed = db.get(Transaction, transaction_id)
     if not seed:
@@ -404,25 +432,57 @@ def suggest_field_updates(
         min_score=min_score,
         only_unclassified=only_unclassified,
     )
+    similar_by_id = {item.transaction_id: item for item in similar}
     txns = [db.get(Transaction, s.transaction_id) for s in similar]
     txns = [t for t in txns if t is not None]
-    return [
-        SuggestFieldUpdateCandidate(
-            transaction_id=t.id,
-            score=float(next(s.score for s in similar if s.transaction_id == t.id)),
-            reason=str(next(s.reason for s in similar if s.transaction_id == t.id)),
-            reasons=list(next(s.reasons for s in similar if s.transaction_id == t.id)),
-            matched_fields=list(next(s.matched_fields for s in similar if s.transaction_id == t.id)),
-            is_classified=bool(next(s.is_classified for s in similar if s.transaction_id == t.id)),
-            current_merchant=t.merchant,
-            current_description=t.description,
-            current_raw_description=t.raw_description,
-            suggested_merchant=seed.merchant or None,
-            suggested_description=seed.description or None,
-            suggested_raw_description=seed.raw_description or None,
+    response: list[SuggestFieldUpdateCandidate] = []
+    for t in txns:
+        sim = similar_by_id.get(t.id)
+        if sim is None:
+            continue
+        if exclude_already_matching:
+            # Strict case-sensitive equality to avoid showing one-to-one exact matches.
+            same_merchant = (t.merchant or "") == (seed.merchant or "")
+            same_description = (t.description or "") == (seed.description or "")
+            same_raw = (t.raw_description or "") == (seed.raw_description or "")
+            if same_merchant or same_description or same_raw:
+                continue
+        ml_hint = name_suggester.suggest(
+            t.raw_description or t.description or "",
+            t.merchant or "",
         )
-        for t in txns
-    ]
+        response.append(
+            SuggestFieldUpdateCandidate(
+                transaction_id=t.id,
+                score=float(sim.score),
+                reason=str(sim.reason),
+                reasons=list(sim.reasons),
+                matched_fields=list(sim.matched_fields),
+                score_components=dict(sim.score_components),
+                is_classified=bool(sim.is_classified),
+                current_merchant=t.merchant,
+                current_description=t.description,
+                current_raw_description=t.raw_description,
+                suggested_merchant=seed.merchant or None,
+                suggested_description=seed.description or None,
+                suggested_raw_description=seed.raw_description or None,
+                ml_suggested_merchant=(
+                    str(ml_hint.get("suggested_merchant"))
+                    if ml_hint.get("suggested_merchant") is not None
+                    else None
+                ),
+                ml_merchant_confidence=float(ml_hint.get("merchant_confidence") or 0.0),
+                ml_suggested_description=(
+                    str(ml_hint.get("suggested_description"))
+                    if ml_hint.get("suggested_description") is not None
+                    else None
+                ),
+                ml_description_confidence=float(
+                    ml_hint.get("description_confidence") or 0.0
+                ),
+            )
+        )
+    return response
 
 
 @router.get("/{transaction_id}", response_model=TransactionRead)
@@ -523,6 +583,7 @@ def bulk_update_fields(
     payload: BulkUpdateFieldsRequest,
     db: Session = Depends(get_db),
     pipeline: ClassificationPipeline = Depends(get_pipeline),
+    name_suggester: CanonicalNameSuggester = Depends(get_name_suggester),
 ):
     if not payload.transaction_ids:
         return BulkUpdateFieldsResponse(updated=0, skipped=0, skipped_reasons={})
@@ -551,6 +612,8 @@ def bulk_update_fields(
             continue
 
         old_merchant = txn.merchant
+        old_description = txn.description
+        old_raw_description = txn.raw_description
         if payload.merchant is not None:
             txn.merchant = payload.merchant
         if payload.description is not None:
@@ -561,10 +624,19 @@ def bulk_update_fields(
             updated_classified += 1
         if payload.merchant is not None and old_merchant and txn.merchant:
             learn_merchant_alias(db, old_merchant, txn.merchant)
+        if payload.merchant is not None or payload.description is not None:
+            name_suggester.record_example(
+                db,
+                input_description=old_raw_description or old_description or "",
+                input_merchant=old_merchant or "",
+                target_merchant=txn.merchant or "",
+                target_description=txn.description or "",
+            )
         db.add(txn)
         updated += 1
 
     db.commit()
+    name_suggester.retrain(db)
 
     if payload.re_predict:
         for txn_id in payload.transaction_ids:
@@ -586,11 +658,14 @@ def update_transaction(
     payload: TransactionUpdate,
     db: Session = Depends(get_db),
     pipeline: ClassificationPipeline = Depends(get_pipeline),
+    name_suggester: CanonicalNameSuggester = Depends(get_name_suggester),
 ):
     txn = db.get(Transaction, transaction_id)
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
     old_merchant = txn.merchant
+    old_description = txn.description
+    old_raw_description = txn.raw_description
     if payload.merchant is not None:
         txn.merchant = payload.merchant
     if payload.description is not None:
@@ -619,7 +694,17 @@ def update_transaction(
         txn.is_internal_transfer = payload.is_internal_transfer
     if payload.merchant is not None and old_merchant and txn.merchant:
         learn_merchant_alias(db, old_merchant, txn.merchant)
+    if payload.merchant is not None or payload.description is not None:
+        name_suggester.record_example(
+            db,
+            input_description=old_raw_description or old_description or "",
+            input_merchant=old_merchant or "",
+            target_merchant=txn.merchant or "",
+            target_description=txn.description or "",
+        )
     db.commit()
+    if payload.merchant is not None or payload.description is not None:
+        name_suggester.retrain(db)
     db.refresh(txn)
 
     if txn.final_category_id is None:

@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import date
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.account import Account
 from app.models.external_account import (
     ExternalAccount,
     ExternalFundingLink,
@@ -16,6 +20,7 @@ from app.schemas.external_account import (
     ExternalAccountUpdate,
     ExternalFundingLinkCreate,
     ExternalFundingLinkRead,
+    ExternalFundingSummaryRead,
     ExternalReconciliationRead,
     ExternalValuationSnapshotCreate,
     ExternalValuationSnapshotRead,
@@ -188,3 +193,60 @@ def get_reconciliation(
     if db.get(ExternalAccount, external_account_id) is None:
         raise HTTPException(status_code=404, detail="External account not found")
     return get_external_reconciliation(db, external_account_id)
+
+
+@router.get("/funding-summary", response_model=ExternalFundingSummaryRead)
+def get_funding_summary(
+    account_id: int | None = None,
+    person_id: int | None = None,
+    month: str | None = Query(None, description="Optional YYYY-MM filter"),
+    start_date: date | None = Query(None, description="Inclusive start date"),
+    end_date: date | None = Query(None, description="Inclusive end date"),
+    db: Session = Depends(get_db),
+):
+    q = db.query(ExternalFundingLink).join(
+        Transaction, ExternalFundingLink.transaction_id == Transaction.id
+    )
+    if account_id is not None:
+        q = q.filter(Transaction.account_id == account_id)
+    if person_id is not None:
+        q = q.join(Account, Transaction.account_id == Account.id).filter(
+            Account.person_id == person_id
+        )
+
+    if month is not None:
+        if not re.fullmatch(r"\d{4}-\d{2}", month):
+            raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+        y, m = month.split("-")
+        year = int(y)
+        mon = int(m)
+        if mon < 1 or mon > 12:
+            raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+        month_start = date(year, mon, 1)
+        month_end = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
+        q = q.filter(Transaction.date >= month_start, Transaction.date < month_end)
+
+    if start_date is not None:
+        q = q.filter(Transaction.date >= start_date)
+    if end_date is not None:
+        q = q.filter(Transaction.date <= end_date)
+
+    funding_in_total = (
+        q.filter(ExternalFundingLink.link_type == "funding_in")
+        .with_entities(func.coalesce(func.sum(ExternalFundingLink.linked_amount), 0.0))
+        .scalar()
+    )
+    funding_out_total = (
+        q.filter(ExternalFundingLink.link_type == "funding_out")
+        .with_entities(func.coalesce(func.sum(ExternalFundingLink.linked_amount), 0.0))
+        .scalar()
+    )
+    links_count = q.count()
+    funding_in = round(float(funding_in_total or 0.0), 2)
+    funding_out = round(float(funding_out_total or 0.0), 2)
+    return ExternalFundingSummaryRead(
+        funding_in_total=funding_in,
+        funding_out_total=funding_out,
+        net_external_flow=round(funding_in - funding_out, 2),
+        links_count=links_count,
+    )

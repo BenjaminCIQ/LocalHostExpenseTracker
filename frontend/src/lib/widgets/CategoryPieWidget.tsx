@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { api, type Dashboard } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import type { WidgetProps } from "@/lib/widgets/types";
 
-const COLORS = ["#2563eb", "#7c3aed", "#db2777", "#ea580c", "#16a34a", "#0891b2"];
-
 function CategoryPieWidget({ filters }: WidgetProps) {
+  const { chartColors } = useTheme();
   const [data, setData] = useState<Dashboard | null>(null);
   useEffect(() => {
     api
@@ -35,7 +35,7 @@ function CategoryPieWidget({ filters }: WidgetProps) {
         <PieChart>
           <Pie data={rows} dataKey="total" nameKey="category_name" innerRadius={60} outerRadius={100}>
             {rows.map((row, idx) => (
-              <Cell key={row.category_id} fill={COLORS[idx % COLORS.length]} />
+              <Cell key={row.category_id} fill={chartColors.palette[idx % chartColors.palette.length]} />
             ))}
           </Pie>
           <Tooltip formatter={(v) => formatCurrency(Number(v))} />

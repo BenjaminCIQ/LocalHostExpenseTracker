@@ -45,6 +45,7 @@ class SimilarTransaction:
     reason: str
     reasons: list[str]
     matched_fields: list[str]
+    score_components: dict[str, float]
     is_classified: bool
     predicted_category_id: int | None
     final_category_id: int | None
@@ -113,32 +114,38 @@ def _candidate_query(db: Session, seed: Transaction, *, only_unclassified: bool)
     )
     seed_tokens = [token for token in seed_text.split() if len(token) >= 4][:3]
 
+    filter_expr = None
+
     if seed_operator:
         like = f"%{seed_operator.lower()}%"
-        q = q.filter(
+        filter_expr = (
             func.lower(Transaction.merchant).like(like)
             | func.lower(Transaction.raw_description).like(like)
             | func.lower(Transaction.description).like(like)
         )
-    elif seed_merchant:
+    if seed_merchant:
         seed_first = seed_merchant.split()[0]
         like = f"%{seed_first}%"
-        q = q.filter(
+        merchant_expr = (
             func.lower(Transaction.merchant).like(like)
             | func.lower(Transaction.raw_description).like(like)
             | func.lower(Transaction.description).like(like)
         )
-    elif seed_tokens:
-        filter_expr = None
+        filter_expr = merchant_expr if filter_expr is None else (filter_expr | merchant_expr)
+    if seed_tokens:
+        token_expr = None
         for token in seed_tokens:
             token_like = f"%{token}%"
             term = (
                 func.lower(Transaction.raw_description).like(token_like)
                 | func.lower(Transaction.description).like(token_like)
             )
-            filter_expr = term if filter_expr is None else (filter_expr | term)
-        if filter_expr is not None:
-            q = q.filter(filter_expr)
+            token_expr = term if token_expr is None else (token_expr | term)
+        if token_expr is not None:
+            filter_expr = token_expr if filter_expr is None else (filter_expr | token_expr)
+
+    if filter_expr is not None:
+        q = q.filter(filter_expr)
 
     return q
 
@@ -217,6 +224,19 @@ def _find_similar_internal(
     )
     alias_map = _build_alias_map(db)
     seed_canonical = _canonical_merchant(seed.merchant or "", alias_map)
+    from app.deps import get_name_suggester
+
+    name_suggester = get_name_suggester()
+    seed_name_suggestion = name_suggester.suggest(
+        seed.raw_description or seed.description or "",
+        seed.merchant or "",
+    )
+    seed_name_merchant = normalize_merchant(
+        str(seed_name_suggestion.get("suggested_merchant") or "")
+    )
+    seed_name_description = normalize_match_text(
+        str(seed_name_suggestion.get("suggested_description") or "")
+    )
 
     if not seed_text and not seed_merchant:
         return []
@@ -243,6 +263,17 @@ def _find_similar_internal(
             else 0.0
         )
         amount_score = _amount_similarity(float(seed.amount), float(c.amount))
+        name_hint = name_suggester.suggest(
+            c.raw_description or c.description or "",
+            c.merchant or "",
+        )
+        candidate_name_merchant = normalize_merchant(
+            str(name_hint.get("suggested_merchant") or "")
+        )
+        candidate_name_description = normalize_match_text(
+            str(name_hint.get("suggested_description") or "")
+        )
+        ml_name_score = 0.0
 
         reasons: list[str] = []
         matched_fields: list[str] = []
@@ -267,8 +298,34 @@ def _find_similar_internal(
             reasons.append("canonical_merchant_match")
             matched_fields.append("canonical_merchant")
             merchant_score = max(merchant_score, 95.0)
+        if (
+            seed_name_merchant
+            and candidate_name_merchant
+            and seed_name_merchant == candidate_name_merchant
+        ):
+            reasons.append("ml_merchant_match")
+            matched_fields.append("ml_merchant")
+            ml_name_score = max(ml_name_score, 100.0)
+        elif seed_name_merchant and c_canonical and seed_name_merchant == c_canonical:
+            reasons.append("ml_seed_to_candidate_canonical_match")
+            matched_fields.append("ml_merchant")
+            ml_name_score = max(ml_name_score, 80.0)
 
-        total_score = (text_score * 0.5) + (merchant_score * 0.35) + (amount_score * 0.15)
+        if seed_name_description and candidate_name_description:
+            desc_model_score = _token_set_ratio(
+                seed_name_description, candidate_name_description
+            )
+            if desc_model_score >= 80:
+                reasons.append("ml_title_match")
+                matched_fields.append("ml_description")
+                ml_name_score = max(ml_name_score, desc_model_score)
+
+        total_score = (
+            (text_score * 0.45)
+            + (merchant_score * 0.3)
+            + (amount_score * 0.15)
+            + (ml_name_score * 0.1)
+        )
         if "canonical_merchant_match" in reasons:
             total_score = min(100.0, total_score + 5.0)
         if total_score < min_score:
@@ -286,6 +343,12 @@ def _find_similar_internal(
                 reason=reason,
                 reasons=reasons,
                 matched_fields=matched_fields,
+                score_components={
+                    "text": round(text_score, 2),
+                    "merchant": round(merchant_score, 2),
+                    "amount": round(amount_score, 2),
+                    "ml_name": round(ml_name_score, 2),
+                },
                 is_classified=c.final_category_id is not None,
                 predicted_category_id=c.predicted_category_id,
                 final_category_id=c.final_category_id,

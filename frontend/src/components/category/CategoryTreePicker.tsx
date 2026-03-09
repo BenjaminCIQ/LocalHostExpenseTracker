@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { Category } from "@/lib/api";
 import {
@@ -37,7 +37,24 @@ export default function CategoryTreePicker({
   className?: string;
 }) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const explicitSelectionCacheRef = useRef<Map<number, number[]>>(new Map());
   const tree = useMemo(() => buildCategoryTree(categories), [categories]);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const descendantIdsById = useMemo(() => {
+    const map = new Map<number, number[]>();
+    const walk = (nodes: CategoryTreeNode[]): number[] => {
+      const collected: number[] = [];
+      for (const node of nodes) {
+        const childDesc = walk(node.children);
+        const allDesc = [...node.children.map((c) => c.id), ...childDesc];
+        map.set(node.id, allDesc);
+        collected.push(...allDesc);
+      }
+      return collected;
+    };
+    walk(tree);
+    return map;
+  }, [tree]);
   const filteredTree = useMemo(
     () => filterCategoryTree(tree, search),
     [tree, search]
@@ -56,6 +73,50 @@ export default function CategoryTreePicker({
     () => visibleRows.map((row) => row.id),
     [visibleRows]
   );
+
+  function toggleRowSelection(row: (typeof visibleRows)[number]) {
+    const descendantIds = descendantIdsById.get(row.id) ?? [];
+    const branchIds = [row.id, ...descendantIds];
+    const selectedDescendants = descendantIds.filter((id) => selectedSet.has(id));
+    const branchFullySelected = branchIds.every((id) => selectedSet.has(id));
+    const branchHasAnySelected =
+      selectedSet.has(row.id) || selectedDescendants.length > 0;
+
+    // Parent-node tri-state cycle for easier branch management:
+    // explicit/partial -> all -> none -> explicit/partial (cached)
+    if (row.hasChildren) {
+      if (!branchFullySelected && branchHasAnySelected) {
+        explicitSelectionCacheRef.current.set(row.id, selectedDescendants);
+        const next = new Set(selectedIds);
+        for (const id of branchIds) next.add(id);
+        onChange(Array.from(next));
+        return;
+      }
+      if (branchFullySelected) {
+        const next = selectedIds.filter((id) => !branchIds.includes(id));
+        onChange(next);
+        return;
+      }
+      const cached = explicitSelectionCacheRef.current.get(row.id) ?? [];
+      if (cached.length > 0) {
+        const next = new Set(selectedIds);
+        for (const id of cached) next.add(id);
+        next.delete(row.id);
+        onChange(Array.from(next));
+      } else {
+        const next = new Set(selectedIds);
+        next.add(row.id);
+        onChange(Array.from(next));
+      }
+      return;
+    }
+
+    onChange(
+      selectedSet.has(row.id)
+        ? selectedIds.filter((id) => id !== row.id)
+        : [...selectedIds, row.id]
+    );
+  }
 
   return (
     <div className={cn("space-y-2", className)}>
@@ -98,13 +159,25 @@ export default function CategoryTreePicker({
       <div className="max-h-72 overflow-auto rounded-md border border-border p-1">
         <div className="space-y-0.5">
           {visibleRows.map((row) => {
-            const active = selectedIds.includes(row.id);
+            const active = selectedSet.has(row.id);
+            const nestedSelectedCount = (descendantIdsById.get(row.id) ?? []).filter((id) =>
+              selectedSet.has(id)
+            ).length;
+            const branchIds = [row.id, ...(descendantIdsById.get(row.id) ?? [])];
+            const branchFullySelected = row.hasChildren && branchIds.every((id) => selectedSet.has(id));
+            const hasNestedSelection = nestedSelectedCount > 0;
+            const indeterminate = row.hasChildren && !branchFullySelected && (hasNestedSelection || active);
+            const checkboxChecked = row.hasChildren ? branchFullySelected : active;
             return (
               <label
                 key={row.id}
                 className={cn(
                   "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm",
-                  active ? "bg-primary/10" : "hover:bg-muted/40"
+                  active
+                    ? "bg-primary/10"
+                    : hasNestedSelection
+                      ? "bg-primary/5 hover:bg-primary/10"
+                      : "hover:bg-muted/40"
                 )}
                 title={row.name}
               >
@@ -139,16 +212,18 @@ export default function CategoryTreePicker({
                 </span>
                 <input
                   type="checkbox"
-                  checked={active}
-                  onChange={() => {
-                    onChange(
-                      active
-                        ? selectedIds.filter((id) => id !== row.id)
-                        : [...selectedIds, row.id]
-                    );
+                  checked={checkboxChecked}
+                  ref={(el) => {
+                    if (el) el.indeterminate = indeterminate;
                   }}
+                  onChange={() => toggleRowSelection(row)}
                 />
                 <span className="min-w-0 flex-1 break-words leading-tight">{row.name}</span>
+                {!active && hasNestedSelection && (
+                  <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                    {nestedSelectedCount} child selected
+                  </span>
+                )}
                 <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
                   {row.is_income ? "income" : "expense"}
                 </span>

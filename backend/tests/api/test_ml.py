@@ -8,6 +8,7 @@ def test_ml_status_initial(client):
     assert data["is_trained"] is False
     assert data["training_samples"] == 0
     assert data["min_samples_required"] == 30
+    assert "name_model" in data
 
 
 def test_ml_retrain_insufficient_data(client, seeded_db):
@@ -27,7 +28,9 @@ def test_ml_retrain_insufficient_data(client, seeded_db):
     res = client.post("/api/ml/retrain")
     assert res.status_code == 200
     data = res.json()
-    assert data["status"] in ("insufficient_data", "trained")
-    if data["status"] == "insufficient_data":
-        assert data["num_samples"] == 1
+    assert "category_model" in data
+    assert "name_model" in data
+    assert data["category_model"]["status"] in ("insufficient_data", "trained")
+    if data["category_model"]["status"] == "insufficient_data":
+        assert data["category_model"]["num_samples"] == 1
 
