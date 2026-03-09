@@ -20,7 +20,10 @@ class MLClassifierStage(PipelineStage):
         return self._classifier.is_trained
 
     def classify(self, ctx: TransactionContext) -> ClassificationResult | None:
-        prediction = self._classifier.predict(ctx.description, ctx.merchant)
+        prediction = self._classifier.predict(
+            ctx.raw_description or ctx.description,
+            ctx.merchant,
+        )
         if prediction is None:
             return None
 

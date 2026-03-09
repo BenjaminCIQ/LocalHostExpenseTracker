@@ -1,18 +1,20 @@
 import hashlib
 import logging
+import re
 
 from sqlalchemy.orm import Session
 
 from app.models.import_batch import ImportBatch
 from app.models.import_profile import ImportProfile
+from app.models.parsing_rule import ParsingRule
 from app.models.transaction import Transaction
 from app.parsers.base import ParsedTransaction
 from app.parsers.csv_parser import CSVBankParser
 from app.parsers.format_detector import detect_parser
 from app.schemas.import_profile import json_to_columns
+from app.services.payment_operator import detect_payment_operator
 
 logger = logging.getLogger(__name__)
-
 
 def compute_dedup_hash(
     account_id: int, date_str: str, amount: float, raw_description: str
@@ -57,6 +59,40 @@ def ingest_file(
         )
     else:
         parsed = parser.parse(file_content, filename)
+
+    # Apply enabled parsing rules (merchant normalization) before insert.
+    rules_q = db.query(ParsingRule).filter(ParsingRule.enabled.is_(True))
+    rules_q = rules_q.filter(
+        (ParsingRule.import_profile_id.is_(None))
+        | (ParsingRule.import_profile_id == import_profile_id)
+    )
+    rules = rules_q.order_by(ParsingRule.priority.asc(), ParsingRule.id.asc()).all()
+
+    compiled_rules: list[tuple[ParsingRule, re.Pattern[str]]] = []
+    for r in rules:
+        try:
+            compiled_rules.append((r, re.compile(r.match_regex, flags=re.IGNORECASE)))
+        except re.error:
+            continue
+
+    if compiled_rules:
+        for p in parsed:
+            source_text = p.raw_description or p.description or p.raw_row_line or ""
+            op = detect_payment_operator(p.merchant, source_text)
+            for r, pat in compiled_rules:
+                if r.operator_token and op and r.operator_token.upper() != op:
+                    continue
+                m = pat.search(source_text)
+                if not m:
+                    continue
+                try:
+                    extracted = m.group(r.merchant_group).strip()
+                except Exception:
+                    extracted = ""
+                if extracted:
+                    p.merchant = extracted[:200]
+                break
+
     batch = ImportBatch(
         account_id=account_id,
         filename=filename,
@@ -67,11 +103,18 @@ def ingest_file(
 
     imported = 0
     skipped = 0
+    seen_dedup_hashes: set[str] = set()
 
     for p in parsed:
         dedup = compute_dedup_hash(
             account_id, str(p.date), p.amount, p.raw_description
         )
+        # Avoid UNIQUE constraint failures when the input file itself contains duplicates.
+        # (Our DB query below won't see unflushed pending inserts in this same session.)
+        if dedup in seen_dedup_hashes:
+            skipped += 1
+            continue
+        seen_dedup_hashes.add(dedup)
         exists = (
             db.query(Transaction.id)
             .filter(Transaction.dedup_hash == dedup)

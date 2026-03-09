@@ -13,21 +13,27 @@ from app.models.category import Category
 from app.models.transaction import Transaction
 from app.pipeline.pipeline import ClassificationPipeline
 from app.schemas.transaction import (
+    BulkUpdateFieldsRequest,
+    BulkUpdateFieldsResponse,
     BulkClassifyRequest,
     BulkClassifyResponse,
     SimilarTransactionCandidate,
+    SuggestFieldUpdateCandidate,
+    TransactionManualCreate,
     TransactionClassify,
     TransactionListResponse,
     TransactionRawRead,
     TransactionRead,
     TransactionUpdate,
 )
-from app.services.similarity_service import find_similar_unclassified
+from app.services.similarity_service import find_similar, find_similar_unclassified
 from app.services.classification_service import (
     classify_transaction_manual,
     run_pipeline_on_transaction,
     run_pipeline_on_unclassified,
 )
+from app.services.ingestion_service import compute_dedup_hash
+from app.models.account import Account
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -65,6 +71,7 @@ def list_transactions(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     account_id: int | None = None,
+    person_id: int | None = None,
     classified: bool | None = None,
     q: str | None = Query(None, description="Free-text search (merchant/description/raw_description)"),
     merchant: str | None = Query(None, description="Merchant/store contains"),
@@ -78,6 +85,10 @@ def list_transactions(
     query = db.query(Transaction)
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)
+    if person_id is not None:
+        query = query.join(Account, Transaction.account_id == Account.id).filter(
+            Account.person_id == person_id
+        )
     if classified is True:
         query = query.filter(Transaction.final_category_id.isnot(None))
     elif classified is False:
@@ -137,6 +148,7 @@ def list_transactions(
 @router.get("/bounds")
 def get_transaction_bounds(
     account_id: int | None = None,
+    person_id: int | None = None,
     classified: bool | None = None,
     db: Session = Depends(get_db),
 ):
@@ -144,6 +156,10 @@ def get_transaction_bounds(
     query = db.query(Transaction)
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)
+    if person_id is not None:
+        query = query.join(Account, Transaction.account_id == Account.id).filter(
+            Account.person_id == person_id
+        )
     if classified is True:
         query = query.filter(Transaction.final_category_id.isnot(None))
     elif classified is False:
@@ -199,6 +215,45 @@ def get_transaction_raw(transaction_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Transaction not found")
     return TransactionRawRead(raw_row_json=txn.raw_row_json, raw_row_line=txn.raw_row_line)
 
+@router.get(
+    "/{transaction_id}/suggest-field-updates",
+    response_model=list[SuggestFieldUpdateCandidate],
+)
+def suggest_field_updates(
+    transaction_id: int,
+    limit: int = Query(25, ge=1, le=200),
+    min_score: int = Query(85, ge=0, le=100),
+    only_unclassified: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    seed = db.get(Transaction, transaction_id)
+    if not seed:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    similar = find_similar(
+        db,
+        transaction_id,
+        limit=limit,
+        min_score=min_score,
+        only_unclassified=only_unclassified,
+    )
+    txns = [db.get(Transaction, s.transaction_id) for s in similar]
+    txns = [t for t in txns if t is not None]
+    return [
+        SuggestFieldUpdateCandidate(
+            transaction_id=t.id,
+            score=float(next(s.score for s in similar if s.transaction_id == t.id)),
+            reason=str(next(s.reason for s in similar if s.transaction_id == t.id)),
+            current_merchant=t.merchant,
+            current_description=t.description,
+            current_raw_description=t.raw_description,
+            suggested_merchant=seed.merchant or None,
+            suggested_description=seed.description or None,
+            suggested_raw_description=seed.raw_description or None,
+        )
+        for t in txns
+    ]
+
 
 @router.get("/{transaction_id}", response_model=TransactionRead)
 def get_transaction(transaction_id: int, db: Session = Depends(get_db)):
@@ -244,6 +299,7 @@ def bulk_classify(
         if not txn:
             skipped += 1
             continue
+        # Guardrail: don't mutate already-classified transactions in bulk.
         if txn.final_category_id is not None:
             skipped += 1
             continue
@@ -254,12 +310,95 @@ def bulk_classify(
 
     return BulkClassifyResponse(updated=updated, skipped=skipped)
 
+@router.post("/manual", response_model=TransactionRead, status_code=201)
+def create_manual_transaction(
+    payload: TransactionManualCreate,
+    db: Session = Depends(get_db),
+    pipeline: ClassificationPipeline = Depends(get_pipeline),
+):
+    acc = db.get(Account, payload.account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    raw_desc = payload.raw_description or payload.description
+    dedup = compute_dedup_hash(payload.account_id, str(payload.date), payload.amount, raw_desc)
+    exists = db.query(Transaction.id).filter(Transaction.dedup_hash == dedup).first()
+    if exists:
+        raise HTTPException(status_code=409, detail="Duplicate transaction (same dedup hash)")
+
+    txn = Transaction(
+        account_id=payload.account_id,
+        import_batch_id=None,
+        date=payload.date,
+        amount=payload.amount,
+        raw_description=raw_desc,
+        description=payload.description,
+        merchant=payload.merchant or "",
+        currency=payload.currency,
+        dedup_hash=dedup,
+        raw_row_json=None,
+        raw_row_line=None,
+    )
+    db.add(txn)
+    db.commit()
+    db.refresh(txn)
+
+    # Populate prediction immediately for convenience (does not set final_category).
+    txn = run_pipeline_on_transaction(db, txn, pipeline)
+    return _to_read(txn, db)
+
+@router.post("/bulk-update-fields", response_model=BulkUpdateFieldsResponse)
+def bulk_update_fields(
+    payload: BulkUpdateFieldsRequest,
+    db: Session = Depends(get_db),
+    pipeline: ClassificationPipeline = Depends(get_pipeline),
+):
+    if not payload.transaction_ids:
+        return BulkUpdateFieldsResponse(updated=0, skipped=0)
+    if (
+        payload.merchant is None
+        and payload.description is None
+        and payload.raw_description is None
+    ):
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    updated = 0
+    skipped = 0
+    for txn_id in payload.transaction_ids:
+        txn = db.get(Transaction, txn_id)
+        if not txn:
+            skipped += 1
+            continue
+        if txn.final_category_id is not None:
+            skipped += 1
+            continue
+
+        if payload.merchant is not None:
+            txn.merchant = payload.merchant
+        if payload.description is not None:
+            txn.description = payload.description
+        if payload.raw_description is not None:
+            txn.raw_description = payload.raw_description
+        db.add(txn)
+        updated += 1
+
+    db.commit()
+
+    if payload.re_predict:
+        for txn_id in payload.transaction_ids:
+            txn = db.get(Transaction, txn_id)
+            if txn and txn.final_category_id is None:
+                run_pipeline_on_transaction(db, txn, pipeline)
+
+    return BulkUpdateFieldsResponse(updated=updated, skipped=skipped)
+
 
 @router.patch("/{transaction_id}", response_model=TransactionRead)
 def update_transaction(
     transaction_id: int,
     payload: TransactionUpdate,
     db: Session = Depends(get_db),
+    pipeline: ClassificationPipeline = Depends(get_pipeline),
 ):
     txn = db.get(Transaction, transaction_id)
     if not txn:
@@ -268,8 +407,19 @@ def update_transaction(
         txn.merchant = payload.merchant
     if payload.description is not None:
         txn.description = payload.description
+    if payload.raw_description is not None:
+        txn.raw_description = payload.raw_description
+    if payload.date is not None:
+        txn.date = payload.date
+    if payload.amount is not None:
+        txn.amount = payload.amount
+    if payload.currency is not None:
+        txn.currency = payload.currency
     db.commit()
     db.refresh(txn)
+
+    if txn.final_category_id is None:
+        txn = run_pipeline_on_transaction(db, txn, pipeline)
     return _to_read(txn, db)
 
 

@@ -17,6 +17,8 @@ from app.ml.classifier import MLClassifier
 from app.pipeline.ml_stage import MLClassifierStage
 from app.pipeline.pipeline import ClassificationPipeline
 from app.models import rule as _rule_models  # noqa: F401
+from app.models import parsing_rule as _parsing_rule_models  # noqa: F401
+from app.models import person as _person_models  # noqa: F401
 from app.routers import (
     accounts,
     categories,
@@ -24,6 +26,8 @@ from app.routers import (
     import_profiles,
     ml,
     overrides,
+    parsing_rules,
+    persons,
     rules,
     transactions,
     upload,
@@ -105,6 +109,8 @@ def test_app(db_session: Session, classifier: MLClassifier) -> FastAPI:
     app.include_router(accounts.router)
     app.include_router(categories.router)
     app.include_router(import_profiles.router)
+    app.include_router(parsing_rules.router)
+    app.include_router(persons.router)
     app.include_router(upload.router)
     app.include_router(transactions.router)
     app.include_router(dashboard.router)

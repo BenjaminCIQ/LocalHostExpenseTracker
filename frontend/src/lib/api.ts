@@ -20,6 +20,13 @@ export interface Account {
   account_type: string;
   currency: string;
   owner: string;
+  person_id?: number | null;
+}
+
+export interface Person {
+  id: number;
+  name: string;
+  created_at: string;
 }
 
 export interface Category {
@@ -35,7 +42,7 @@ export interface CategoryCreate {
   name: string;
   parent_id: number | null;
   is_income: boolean;
-  sort_order: number;
+  sort_order?: number | null;
 }
 
 export interface Transaction {
@@ -54,6 +61,48 @@ export interface Transaction {
   classification_source: string | null;
   confidence: number | null;
   created_at: string;
+}
+
+export interface TransactionManualCreate {
+  account_id: number;
+  date: string; // YYYY-MM-DD
+  amount: number;
+  description: string;
+  merchant?: string | null;
+  raw_description?: string | null;
+  currency?: string;
+}
+
+export interface TransactionUpdate {
+  merchant?: string | null;
+  description?: string | null;
+  raw_description?: string | null;
+  date?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+}
+
+export interface SuggestFieldUpdateCandidate {
+  transaction_id: number;
+  score: number;
+  reason: string;
+  current_merchant: string;
+  current_description: string;
+  current_raw_description: string;
+  suggested_merchant: string | null;
+  suggested_description: string | null;
+  suggested_raw_description: string | null;
+}
+
+export interface ParsingRule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  import_profile_id: number | null;
+  operator_token: string | null;
+  match_regex: string;
+  merchant_group: number;
 }
 
 export interface TransactionListResponse {
@@ -182,6 +231,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  updateAccount: (id: number, data: Partial<Account>) =>
+    request<Account>(`/accounts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  getPersons: () => request<Person[]>("/persons/"),
+  createPerson: (data: { name: string }) =>
+    request<Person>("/persons/", { method: "POST", body: JSON.stringify(data) }),
+  updatePerson: (id: number, data: { name: string }) =>
+    request<Person>(`/persons/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deletePerson: (id: number) => request<void>(`/persons/${id}`, { method: "DELETE" }),
 
   getCategories: () => request<Category[]>("/categories/"),
   getCategoryTree: () => request<Category[]>("/categories/tree"),
@@ -195,6 +256,7 @@ export const api = {
     page?: number;
     page_size?: number;
     account_id?: number;
+    person_id?: number;
     classified?: boolean;
     q?: string;
     merchant?: string;
@@ -210,6 +272,8 @@ export const api = {
       searchParams.set("page_size", String(params.page_size));
     if (params.account_id)
       searchParams.set("account_id", String(params.account_id));
+    if (params.person_id)
+      searchParams.set("person_id", String(params.person_id));
     if (params.classified !== undefined)
       searchParams.set("classified", String(params.classified));
     if (params.q) searchParams.set("q", params.q);
@@ -224,9 +288,10 @@ export const api = {
     );
   },
 
-  getTransactionBounds: (params?: { account_id?: number; classified?: boolean }) => {
+  getTransactionBounds: (params?: { account_id?: number; person_id?: number; classified?: boolean }) => {
     const qs = new URLSearchParams();
     if (params?.account_id) qs.set("account_id", String(params.account_id));
+    if (params?.person_id) qs.set("person_id", String(params.person_id));
     if (params?.classified !== undefined) qs.set("classified", String(params.classified));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<TransactionBounds>(`/transactions/bounds${suffix}`);
@@ -253,6 +318,35 @@ export const api = {
     return request<SimilarTransactionCandidate[]>(`/transactions/${id}/similar${suffix}`);
   },
   getTransactionRaw: (id: number) => request<TransactionRaw>(`/transactions/${id}/raw`),
+
+  createManualTransaction: (payload: TransactionManualCreate) =>
+    request<Transaction>(`/transactions/manual`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateTransaction: (id: number, payload: TransactionUpdate) =>
+    request<Transaction>(`/transactions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  suggestFieldUpdates: (id: number, params?: { limit?: number; min_score?: number; only_unclassified?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.min_score !== undefined) qs.set("min_score", String(params.min_score));
+    if (params?.only_unclassified !== undefined) qs.set("only_unclassified", String(params.only_unclassified));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<SuggestFieldUpdateCandidate[]>(`/transactions/${id}/suggest-field-updates${suffix}`);
+  },
+  bulkUpdateFields: (payload: { transaction_ids: number[]; merchant?: string | null; description?: string | null; raw_description?: string | null; re_predict?: boolean }) =>
+    request<{ updated: number; skipped: number }>(`/transactions/bulk-update-fields`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  createParsingRule: (payload: { name: string; enabled?: boolean; priority?: number; import_profile_id?: number | null; operator_token?: string | null; match_regex: string; merchant_group?: number }) =>
+    request<ParsingRule>(`/parsing-rules/`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   uploadFile: async (
     file: File,
@@ -289,17 +383,19 @@ export const api = {
   deleteImportProfile: (id: number) =>
     request<{ deleted: boolean }>(`/import-profiles/${id}`, { method: "DELETE" }),
 
-  getDashboard: (params?: { accountId?: number; month?: string }) => {
+  getDashboard: (params?: { accountId?: number; personId?: number; month?: string }) => {
     const qs = new URLSearchParams();
     if (params?.accountId) qs.set("account_id", String(params.accountId));
+    if (params?.personId) qs.set("person_id", String(params.personId));
     if (params?.month) qs.set("month", params.month);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<Dashboard>(`/dashboard/${suffix}`);
   },
-  getMonthlyDashboard: (months = 6, accountId?: number) => {
+  getMonthlyDashboard: (months = 6, accountId?: number, personId?: number) => {
     const params = new URLSearchParams();
     params.set("months", String(months));
     if (accountId) params.set("account_id", String(accountId));
+    if (personId) params.set("person_id", String(personId));
     return request<{ months: MonthlyTotals[] }>(`/dashboard/monthly?${params.toString()}`);
   },
 

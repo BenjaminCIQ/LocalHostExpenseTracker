@@ -11,7 +11,6 @@ from app.services.ingestion_service import ingest_file
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
-
 @router.post("/", response_model=ImportResult)
 async def upload_bank_statement(
     file: UploadFile = File(...),

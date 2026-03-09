@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.ml.preprocessor import preprocess_text
 from app.models.transaction import Transaction
+from app.services.payment_operator import detect_payment_operator
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,35 @@ class SimilarTransaction:
     reason: str
     predicted_category_id: int | None
     final_category_id: int | None
+
+
+def _candidate_query(
+    db: Session, seed: Transaction, *, only_unclassified: bool
+):
+    seed_merchant = (seed.merchant or "").strip()
+    seed_operator = detect_payment_operator(
+        seed_merchant, seed.raw_description, seed.description
+    )
+
+    q = db.query(Transaction).filter(Transaction.id != seed.id)
+    if only_unclassified:
+        q = q.filter(Transaction.final_category_id.is_(None))
+
+    reason_prefix = "merchant_exact"
+    if seed_operator:
+        like = f"%{seed_operator.lower()}%"
+        q = q.filter(
+            func.lower(Transaction.merchant).like(like)
+            | func.lower(Transaction.raw_description).like(like)
+            | func.lower(Transaction.description).like(like)
+        )
+        reason_prefix = f"operator({seed_operator})"
+    else:
+        if not seed_merchant:
+            return None, None
+        q = q.filter(func.lower(Transaction.merchant) == seed_merchant.lower())
+
+    return q, reason_prefix
 
 
 def _token_set_ratio_fallback(a: str, b: str) -> float:
@@ -58,30 +88,25 @@ def find_similar_unclassified(
     if seed is None:
         raise ValueError("Seed transaction not found")
 
-    seed_merchant = (seed.merchant or "").strip()
-    if not seed_merchant:
-        return []
-
-    seed_text = preprocess_text(seed.raw_description or seed.description or "")
+    seed_text = preprocess_text(
+        seed.raw_description or seed.description or seed.raw_row_line or ""
+    )
     if not seed_text:
         return []
 
-    # Candidate pool: same merchant (case-insensitive), not yet finally classified.
+    q, reason_prefix = _candidate_query(db, seed, only_unclassified=True)
+    if q is None or reason_prefix is None:
+        return []
+
     candidates = (
-        db.query(Transaction)
-        .filter(
-            Transaction.id != seed.id,
-            Transaction.final_category_id.is_(None),
-            func.lower(Transaction.merchant) == seed_merchant.lower(),
-        )
-        .order_by(Transaction.date.desc(), Transaction.id.desc())
+        q.order_by(Transaction.date.desc(), Transaction.id.desc())
         .limit(2000)
         .all()
     )
 
     scored: list[SimilarTransaction] = []
     for c in candidates:
-        c_text = preprocess_text(c.raw_description or c.description or "")
+        c_text = preprocess_text(c.raw_description or c.description or c.raw_row_line or "")
         if not c_text:
             continue
         score = _token_set_ratio(seed_text, c_text)
@@ -95,7 +120,61 @@ def find_similar_unclassified(
                 amount=float(c.amount),
                 date=str(c.date),
                 score=score,
-                reason="merchant_exact+token_set_ratio",
+                reason=f"{reason_prefix}+token_set_ratio",
+                predicted_category_id=c.predicted_category_id,
+                final_category_id=c.final_category_id,
+            )
+        )
+
+    scored.sort(key=lambda x: (x.score, x.transaction_id), reverse=True)
+    return scored[:limit]
+
+
+def find_similar(
+    db: Session,
+    seed_transaction_id: int,
+    *,
+    limit: int = 25,
+    min_score: int = 80,
+    only_unclassified: bool = True,
+) -> list[SimilarTransaction]:
+    seed = db.get(Transaction, seed_transaction_id)
+    if seed is None:
+        raise ValueError("Seed transaction not found")
+
+    seed_text = preprocess_text(
+        seed.raw_description or seed.description or seed.raw_row_line or ""
+    )
+    if not seed_text:
+        return []
+
+    q, reason_prefix = _candidate_query(db, seed, only_unclassified=only_unclassified)
+    if q is None or reason_prefix is None:
+        return []
+
+    candidates = (
+        q.order_by(Transaction.date.desc(), Transaction.id.desc())
+        .limit(2000)
+        .all()
+    )
+
+    scored: list[SimilarTransaction] = []
+    for c in candidates:
+        c_text = preprocess_text(c.raw_description or c.description or c.raw_row_line or "")
+        if not c_text:
+            continue
+        score = _token_set_ratio(seed_text, c_text)
+        if score < min_score:
+            continue
+        scored.append(
+            SimilarTransaction(
+                transaction_id=c.id,
+                merchant=c.merchant,
+                description=c.description,
+                amount=float(c.amount),
+                date=str(c.date),
+                score=score,
+                reason=f"{reason_prefix}+token_set_ratio",
                 predicted_category_id=c.predicted_category_id,
                 final_category_id=c.final_category_id,
             )

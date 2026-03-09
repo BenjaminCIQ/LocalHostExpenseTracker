@@ -25,6 +25,8 @@ from app.routers import (
     import_profiles,
     ml,
     overrides,
+    parsing_rules,
+    persons,
     rules,
     suggestions,
     transactions,
@@ -48,6 +50,14 @@ def _ensure_transactions_raw_columns():
             conn.execute(text("ALTER TABLE transactions ADD COLUMN raw_row_line TEXT"))
 
 
+def _ensure_accounts_person_column():
+    with engine.begin() as conn:
+        cols = conn.execute(text("PRAGMA table_info(accounts)")).fetchall()
+        existing = {r[1] for r in cols}
+        if "person_id" not in existing:
+            conn.execute(text("ALTER TABLE accounts ADD COLUMN person_id INTEGER"))
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     for d in [settings.data_dir, settings.ml_model_dir, settings.upload_dir]:
@@ -56,6 +66,7 @@ async def lifespan(_app: FastAPI):
     Base.metadata.create_all(bind=engine)
 
     _ensure_transactions_raw_columns()
+    _ensure_accounts_person_column()
 
     db = SessionLocal()
     try:
@@ -89,6 +100,8 @@ app.add_middleware(
 app.include_router(accounts.router)
 app.include_router(categories.router)
 app.include_router(import_profiles.router)
+app.include_router(parsing_rules.router)
+app.include_router(persons.router)
 app.include_router(upload.router)
 app.include_router(transactions.router)
 app.include_router(dashboard.router)

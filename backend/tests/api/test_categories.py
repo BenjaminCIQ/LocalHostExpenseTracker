@@ -24,6 +24,12 @@ def test_create_update_delete_category(client):
     cat = create.json()
     cat_id = cat["id"]
 
+    dup = client.post(
+        "/api/categories/",
+        json={"name": "Test Category", "parent_id": None, "is_income": False},
+    )
+    assert dup.status_code == 409
+
     update = client.put(
         f"/api/categories/{cat_id}",
         json={"name": "Test Category Renamed", "parent_id": None, "is_income": False, "sort_order": 124},

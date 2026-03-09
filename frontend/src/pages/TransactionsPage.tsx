@@ -12,14 +12,17 @@ import {
 } from "lucide-react";
 import {
   api,
+  type Account,
   type Transaction,
   type TransactionListResponse,
   type Category,
   type SimilarTransactionCandidate,
   type TransactionRaw,
+  type SuggestFieldUpdateCandidate,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getCategoryIcon } from "@/lib/categoryIcons";
+import { useSelectedPersonId } from "@/lib/personFilter";
 
 type FilterMode = "all" | "unclassified" | "classified";
 
@@ -52,7 +55,6 @@ function ClassifyCell({
   const [newName, setNewName] = useState("");
   const [newParentId, setNewParentId] = useState<number | "">("");
   const [newIsIncome, setNewIsIncome] = useState(false);
-  const [newSortOrder, setNewSortOrder] = useState(0);
   const [creating, setCreating] = useState(false);
 
   if (transaction.final_category_id) {
@@ -152,15 +154,6 @@ function ClassifyCell({
                 ))}
               </Select>
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground">Sort</label>
-              <input
-                className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
-                type="number"
-                value={newSortOrder}
-                onChange={(e) => setNewSortOrder(Number(e.target.value))}
-              />
-            </div>
             <div className="flex items-center justify-between gap-2">
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -180,7 +173,6 @@ function ClassifyCell({
                       name: newName.trim(),
                       parent_id: newParentId ? Number(newParentId) : null,
                       is_income: newIsIncome,
-                      sort_order: newSortOrder,
                     });
                     await onCategoryCreated(created.id);
                     setSelectedCat(created.id);
@@ -188,7 +180,6 @@ function ClassifyCell({
                     setNewName("");
                     setNewParentId("");
                     setNewIsIncome(false);
-                    setNewSortOrder(0);
                   } catch (e) {
                     onError(e instanceof Error ? e.message : "Failed to create category");
                   } finally {
@@ -207,8 +198,10 @@ function ClassifyCell({
 }
 
 export default function TransactionsPage() {
+  const selectedPersonId = useSelectedPersonId();
   const [data, setData] = useState<TransactionListResponse | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<FilterMode>("all");
   const [error, setError] = useState("");
@@ -253,6 +246,57 @@ export default function TransactionsPage() {
   const [expandedRaw, setExpandedRaw] = useState<TransactionRaw | null>(null);
   const [expandedLoading, setExpandedLoading] = useState(false);
 
+  const [editOpenTxnId, setEditOpenTxnId] = useState<number | null>(null);
+  const [editDate, setEditDate] = useState<string>("");
+  const [editAmount, setEditAmount] = useState<number>(0);
+  const [editCategoryId, setEditCategoryId] = useState<number | "">("");
+  const [editMerchant, setEditMerchant] = useState<string>("");
+  const [editDescription, setEditDescription] = useState<string>("");
+  const [editRawDescription, setEditRawDescription] = useState<string>("");
+  const [editCurrency, setEditCurrency] = useState<string>("EUR");
+  const [editSaving, setEditSaving] = useState(false);
+
+  const [applySimilarOpen, setApplySimilarOpen] = useState(false);
+  const [applySimilarSeedId, setApplySimilarSeedId] = useState<number | null>(null);
+  const [applySimilarCandidates, setApplySimilarCandidates] = useState<SuggestFieldUpdateCandidate[]>([]);
+  const [applySimilarSelected, setApplySimilarSelected] = useState<Set<number>>(
+    new Set()
+  );
+  const [applySimilarLoading, setApplySimilarLoading] = useState(false);
+  const [applyFieldMerchant, setApplyFieldMerchant] = useState(true);
+  const [applyFieldDescription, setApplyFieldDescription] = useState(false);
+  const [applyFieldRawDescription, setApplyFieldRawDescription] = useState(false);
+
+  const [saveRuleName, setSaveRuleName] = useState("");
+  const [saveRuleOperator, setSaveRuleOperator] = useState<string | null>(null);
+  const [saveRuleRegex, setSaveRuleRegex] = useState("");
+  const [saveRuleGroup, setSaveRuleGroup] = useState(1);
+  const [saveRuleSaving, setSaveRuleSaving] = useState(false);
+
+  function detectOperatorToken(text: string): string | null {
+    const t = text.toLowerCase();
+    if (t.includes("paypal")) return "PAYPAL";
+    if (t.includes("stripe")) return "STRIPE";
+    if (t.includes("sumup")) return "SUMUP";
+    if (t.includes("square")) return "SQUARE";
+    if (t.includes("adyen")) return "ADYEN";
+    if (t.includes("klarna")) return "KLARNA";
+    if (t.includes("mollie")) return "MOLLIE";
+    if (t.includes("worldline")) return "WORLDLINE";
+    if (t.includes("nets")) return "NETS";
+    if (t.includes("payone")) return "PAYONE";
+    return null;
+  }
+
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualAccountId, setManualAccountId] = useState<number | null>(null);
+  const [manualDate, setManualDate] = useState<string>("");
+  const [manualAmount, setManualAmount] = useState<number>(0);
+  const [manualMerchant, setManualMerchant] = useState<string>("");
+  const [manualDescription, setManualDescription] = useState<string>("");
+  const [manualCurrency, setManualCurrency] = useState<string>("EUR");
+  const [manualSaving, setManualSaving] = useState(false);
+
   useEffect(() => {
     try {
       localStorage.setItem("expense_tracker_filters_open", String(filtersOpen));
@@ -265,6 +309,7 @@ export default function TransactionsPage() {
     const params: {
       page: number;
       page_size: number;
+      person_id?: number;
       classified?: boolean;
       q?: string;
       merchant?: string;
@@ -277,6 +322,7 @@ export default function TransactionsPage() {
       page,
       page_size: 50,
     };
+    if (selectedPersonId) params.person_id = selectedPersonId;
     if (filter === "classified") params.classified = true;
     if (filter === "unclassified") params.classified = false;
     if (searchText.trim()) params.q = searchText.trim();
@@ -297,6 +343,7 @@ export default function TransactionsPage() {
     endDate,
     minAmount,
     maxAmount,
+    selectedPersonId,
   ]);
 
   useEffect(() => {
@@ -308,10 +355,18 @@ export default function TransactionsPage() {
   }, []);
 
   useEffect(() => {
+    api.getAccounts().then((accs) => {
+      setAccounts(accs);
+      if (manualAccountId === null && accs.length > 0) setManualAccountId(accs[0].id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     const classified =
       filter === "classified" ? true : filter === "unclassified" ? false : undefined;
     api
-      .getTransactionBounds({ classified })
+      .getTransactionBounds({ classified, person_id: selectedPersonId ?? undefined })
       .then((b) => {
         setBounds(b);
         if (!startDate && b.min_date) setStartDate(b.min_date);
@@ -321,7 +376,7 @@ export default function TransactionsPage() {
       })
       .catch(() => setBounds(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  }, [filter, selectedPersonId]);
 
   const refreshCategories = async () => {
     const cats = await api.getCategories();
@@ -412,6 +467,23 @@ export default function TransactionsPage() {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Transactions</h2>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              const today = new Date().toISOString().slice(0, 10);
+              if (manualAccountId === null && accounts.length > 0) {
+                setManualAccountId(accounts[0].id);
+              }
+              setManualDate(today);
+              setManualAmount(0);
+              setManualMerchant("");
+              setManualDescription("");
+              setManualCurrency("EUR");
+              setManualOpen(true);
+            }}
+          >
+            Add transaction
+          </Button>
           <Button variant="outline" onClick={handleClassifyAll}>
             <Sparkles className="h-4 w-4" />
             Run ML on Unclassified
@@ -693,6 +765,225 @@ export default function TransactionsPage() {
                             </div>
                           ) : expandedRaw ? (
                             <div className="space-y-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-sm font-medium">Details</div>
+                                <div className="flex gap-2">
+                                  {editOpenTxnId === txn.id ? (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={editSaving}
+                                        onClick={() => {
+                                          setEditOpenTxnId(null);
+                                        }}
+                                      >
+                                        Cancel
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={editSaving || applySimilarLoading}
+                                        onClick={async () => {
+                                          setApplySimilarLoading(true);
+                                          try {
+                                            // Save current edits first, so suggestions use the corrected seed fields.
+                                            await api.updateTransaction(txn.id, {
+                                              date: editDate,
+                                              amount: editAmount,
+                                              merchant: editMerchant,
+                                              description: editDescription,
+                                              raw_description: editRawDescription,
+                                              currency: editCurrency,
+                                            });
+
+                                            const candidates = await api.suggestFieldUpdates(txn.id, {
+                                              limit: 50,
+                                              min_score: 85,
+                                              only_unclassified: false,
+                                            });
+
+                                            const op = detectOperatorToken(
+                                              `${editMerchant} ${editRawDescription} ${editDescription}`
+                                            );
+                                            setSaveRuleOperator(op);
+                                            setSaveRuleName(
+                                              op ? `${op} merchant extract` : "Merchant extract"
+                                            );
+                                            setSaveRuleGroup(1);
+                                            setSaveRuleRegex(
+                                              op ? `${op.toLowerCase()}\\s*\\*\\s*([^/|]+)` : ""
+                                            );
+
+                                            setApplySimilarSeedId(txn.id);
+                                            setApplySimilarCandidates(candidates);
+                                            setApplySimilarSelected(
+                                              new Set(candidates.map((c) => c.transaction_id))
+                                            );
+                                            setApplySimilarOpen(candidates.length > 0);
+                                            load();
+                                          } catch (e) {
+                                            setError(
+                                              e instanceof Error
+                                                ? e.message
+                                                : "Failed to fetch suggestions"
+                                            );
+                                          } finally {
+                                            setApplySimilarLoading(false);
+                                          }
+                                        }}
+                                      >
+                                        Apply to similar...
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        disabled={editSaving || !editDate || !editDescription.trim()}
+                                        onClick={async () => {
+                                          setEditSaving(true);
+                                          try {
+                                            await api.updateTransaction(txn.id, {
+                                              date: editDate,
+                                              amount: editAmount,
+                                              merchant: editMerchant,
+                                              description: editDescription,
+                                              raw_description: editRawDescription,
+                                              currency: editCurrency,
+                                            });
+                                            if (editCategoryId) {
+                                              await api.classifyTransaction(txn.id, {
+                                                category_id: editCategoryId,
+                                                merchant: editMerchant || undefined,
+                                              });
+                                            }
+                                            setEditOpenTxnId(null);
+                                            load();
+                                          } catch (e) {
+                                            setError(
+                                              e instanceof Error
+                                                ? e.message
+                                                : "Failed to update transaction"
+                                            );
+                                          } finally {
+                                            setEditSaving(false);
+                                          }
+                                        }}
+                                      >
+                                        Save
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setEditOpenTxnId(txn.id);
+                                        setEditDate(txn.date);
+                                        setEditAmount(txn.amount);
+                                        setEditCategoryId(
+                                          txn.final_category_id ??
+                                            txn.predicted_category_id ??
+                                            ""
+                                        );
+                                        setEditMerchant(txn.merchant ?? "");
+                                        setEditDescription(txn.description ?? "");
+                                        setEditRawDescription(txn.raw_description ?? "");
+                                        setEditCurrency((txn.currency ?? "EUR").toUpperCase());
+                                      }}
+                                    >
+                                      Edit
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {editOpenTxnId === txn.id && (
+                                <div className="grid gap-3 md:grid-cols-3">
+                                  <div>
+                                    <label className="text-xs text-muted-foreground">Date</label>
+                                    <input
+                                      className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                                      type="date"
+                                      value={editDate}
+                                      onChange={(e) => setEditDate(e.target.value)}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-muted-foreground">Amount</label>
+                                    <input
+                                      className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                                      type="number"
+                                      step="0.01"
+                                      value={editAmount}
+                                      onChange={(e) => setEditAmount(Number(e.target.value))}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-muted-foreground">
+                                      Currency
+                                    </label>
+                                    <input
+                                      className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                                      value={editCurrency}
+                                      onChange={(e) =>
+                                        setEditCurrency(e.target.value.toUpperCase())
+                                      }
+                                    />
+                                  </div>
+                                  <div className="md:col-span-1">
+                                    <label className="text-xs text-muted-foreground">
+                                      Category
+                                    </label>
+                                    <Select
+                                      className="mt-1"
+                                      value={editCategoryId}
+                                      onChange={(e) =>
+                                        setEditCategoryId(Number(e.target.value) || "")
+                                      }
+                                    >
+                                      <option value="">(no change)</option>
+                                      {categories.map((c) => (
+                                        <option key={c.id} value={c.id}>
+                                          {c.parent_id ? "\u00A0\u00A0" : ""}
+                                          {c.name}
+                                        </option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <div className="md:col-span-1">
+                                    <label className="text-xs text-muted-foreground">
+                                      Merchant
+                                    </label>
+                                    <input
+                                      className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                                      value={editMerchant}
+                                      onChange={(e) => setEditMerchant(e.target.value)}
+                                    />
+                                  </div>
+                                  <div className="md:col-span-1">
+                                    <label className="text-xs text-muted-foreground">
+                                      Description
+                                    </label>
+                                    <input
+                                      className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                                      value={editDescription}
+                                      onChange={(e) => setEditDescription(e.target.value)}
+                                    />
+                                  </div>
+                                  <div className="md:col-span-3">
+                                    <label className="text-xs text-muted-foreground">
+                                      Raw description
+                                    </label>
+                                    <input
+                                      className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                                      value={editRawDescription}
+                                      onChange={(e) =>
+                                        setEditRawDescription(e.target.value)
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
                               {expandedRaw.raw_row_line && (
                                 <div>
                                   <div className="text-xs font-medium text-muted-foreground mb-1">
@@ -934,6 +1225,357 @@ export default function TransactionsPage() {
                 >
                   Apply to selected
                 </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {manualOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-2xl mx-4">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold">Add transaction</div>
+                <div className="text-sm text-muted-foreground">
+                  Manually add a transaction (not from an import).
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setManualOpen(false);
+                }}
+              >
+                Close
+              </Button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="text-sm text-muted-foreground">Account</label>
+                  <Select
+                    className="mt-1"
+                    value={manualAccountId ?? ""}
+                    onChange={(e) => setManualAccountId(Number(e.target.value) || null)}
+                  >
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Date</label>
+                  <input
+                    className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                    type="date"
+                    value={manualDate}
+                    onChange={(e) => setManualDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Amount</label>
+                  <input
+                    className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                    type="number"
+                    step="0.01"
+                    value={manualAmount}
+                    onChange={(e) => setManualAmount(Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Merchant</label>
+                  <input
+                    className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                    value={manualMerchant}
+                    onChange={(e) => setManualMerchant(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground">Currency</label>
+                  <input
+                    className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                    value={manualCurrency}
+                    onChange={(e) => setManualCurrency(e.target.value.toUpperCase())}
+                    placeholder="EUR"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-sm text-muted-foreground">Description</label>
+                  <input
+                    className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                    value={manualDescription}
+                    onChange={(e) => setManualDescription(e.target.value)}
+                    placeholder="e.g. Cash withdrawal"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setManualOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  disabled={
+                    manualSaving ||
+                    manualAccountId === null ||
+                    !manualDate ||
+                    !manualDescription.trim() ||
+                    Number.isNaN(manualAmount)
+                  }
+                  onClick={async () => {
+                    setManualSaving(true);
+                    try {
+                      await api.createManualTransaction({
+                        account_id: manualAccountId!,
+                        date: manualDate,
+                        amount: manualAmount,
+                        description: manualDescription.trim(),
+                        merchant: manualMerchant.trim() || null,
+                        currency: manualCurrency.trim() || "EUR",
+                      });
+                      setManualOpen(false);
+                      load();
+                    } catch (e) {
+                      setError(
+                        e instanceof Error ? e.message : "Failed to create transaction"
+                      );
+                    } finally {
+                      setManualSaving(false);
+                    }
+                  }}
+                >
+                  Create
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {applySimilarOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-3xl mx-4">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold">Apply edits to similar</div>
+                <div className="text-sm text-muted-foreground">
+                  Review matches and bulk-apply the selected field updates.
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setApplySimilarOpen(false);
+                  setApplySimilarCandidates([]);
+                  setApplySimilarSelected(new Set());
+                }}
+              >
+                Close
+              </Button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={applyFieldMerchant}
+                      onChange={(e) => setApplyFieldMerchant(e.target.checked)}
+                    />
+                    Merchant
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={applyFieldDescription}
+                      onChange={(e) => setApplyFieldDescription(e.target.checked)}
+                    />
+                    Description
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={applyFieldRawDescription}
+                      onChange={(e) => setApplyFieldRawDescription(e.target.checked)}
+                    />
+                    Raw description
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setApplySimilarSelected(
+                        new Set(applySimilarCandidates.map((c) => c.transaction_id))
+                      )
+                    }
+                  >
+                    Select all
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setApplySimilarSelected(new Set())}
+                  >
+                    Select none
+                  </Button>
+                </div>
+              </div>
+
+              <div className="max-h-[55vh] overflow-auto border border-border rounded-md">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="p-2 text-left">Apply</th>
+                      <th className="p-2 text-left">Merchant</th>
+                      <th className="p-2 text-left">Description</th>
+                      <th className="p-2 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {applySimilarCandidates.map((c) => (
+                      <tr key={c.transaction_id} className="border-b">
+                        <td className="p-2">
+                          <input
+                            type="checkbox"
+                            checked={applySimilarSelected.has(c.transaction_id)}
+                            onChange={(e) => {
+                              setApplySimilarSelected((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(c.transaction_id);
+                                else next.delete(c.transaction_id);
+                                return next;
+                              });
+                            }}
+                          />
+                        </td>
+                        <td className="p-2 whitespace-nowrap">{c.current_merchant}</td>
+                        <td className="p-2 max-w-md truncate" title={c.current_description}>
+                          {c.current_description}
+                        </td>
+                        <td className="p-2 text-right font-mono">{c.score.toFixed(0)}</td>
+                      </tr>
+                    ))}
+                    {applySimilarCandidates.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="p-6 text-center text-muted-foreground">
+                          No candidates found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  disabled={
+                    applySimilarSelected.size === 0 ||
+                    (!applyFieldMerchant && !applyFieldDescription && !applyFieldRawDescription) ||
+                    applySimilarLoading ||
+                    applySimilarSeedId === null ||
+                    applySimilarCandidates.length === 0
+                  }
+                  onClick={async () => {
+                    if (applySimilarSeedId === null) return;
+                    const seed = applySimilarCandidates[0];
+                    const payload: {
+                      transaction_ids: number[];
+                      merchant?: string | null;
+                      description?: string | null;
+                      raw_description?: string | null;
+                      re_predict?: boolean;
+                    } = {
+                      transaction_ids: Array.from(applySimilarSelected),
+                      re_predict: true,
+                    };
+                    if (applyFieldMerchant && seed?.suggested_merchant)
+                      payload.merchant = seed.suggested_merchant;
+                    if (applyFieldDescription && seed?.suggested_description)
+                      payload.description = seed.suggested_description;
+                    if (applyFieldRawDescription && seed?.suggested_raw_description)
+                      payload.raw_description = seed.suggested_raw_description;
+
+                    setApplySimilarLoading(true);
+                    try {
+                      await api.bulkUpdateFields(payload);
+                      setApplySimilarOpen(false);
+                      setApplySimilarCandidates([]);
+                      setApplySimilarSelected(new Set());
+                      load();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Bulk update failed");
+                    } finally {
+                      setApplySimilarLoading(false);
+                    }
+                  }}
+                >
+                  Apply to selected
+                </Button>
+              </div>
+              <div className="border border-border rounded-md p-3 space-y-2">
+                <div className="text-sm font-medium">Save as parsing rule (optional)</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <input
+                    className="border border-border rounded px-2 py-1 bg-background text-sm"
+                    placeholder="Rule name"
+                    value={saveRuleName}
+                    onChange={(e) => setSaveRuleName(e.target.value)}
+                  />
+                  <input
+                    className="border border-border rounded px-2 py-1 bg-background text-sm"
+                    placeholder="Operator token (optional)"
+                    value={saveRuleOperator ?? ""}
+                    onChange={(e) => setSaveRuleOperator(e.target.value || null)}
+                  />
+                  <input
+                    className="border border-border rounded px-2 py-1 bg-background text-sm"
+                    placeholder="Merchant group (default 1)"
+                    type="number"
+                    value={saveRuleGroup}
+                    onChange={(e) => setSaveRuleGroup(Number(e.target.value || 1))}
+                    min={1}
+                  />
+                </div>
+                <input
+                  className="border border-border rounded px-2 py-1 bg-background text-sm w-full"
+                  placeholder="Regex with capture group for merchant"
+                  value={saveRuleRegex}
+                  onChange={(e) => setSaveRuleRegex(e.target.value)}
+                />
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    disabled={
+                      saveRuleSaving || !saveRuleName.trim() || !saveRuleRegex.trim()
+                    }
+                    onClick={async () => {
+                      setSaveRuleSaving(true);
+                      try {
+                        await api.createParsingRule({
+                          name: saveRuleName.trim(),
+                          enabled: true,
+                          priority: 100,
+                          operator_token: saveRuleOperator,
+                          match_regex: saveRuleRegex,
+                          merchant_group: saveRuleGroup,
+                        });
+                      } catch (e) {
+                        setError(e instanceof Error ? e.message : "Failed to save rule");
+                      } finally {
+                        setSaveRuleSaving(false);
+                      }
+                    }}
+                  >
+                    Save rule
+                  </Button>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Rules apply on future imports (and can be managed via the API).
+                </div>
               </div>
             </div>
           </div>

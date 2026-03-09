@@ -68,17 +68,17 @@ class CSVBankParser(BankParser):
     def _make_reader(self, file_content: str, delimiter: str | None):
         sample = file_content[:4096]
         if delimiter:
-            return csv.reader(io.StringIO(file_content), delimiter=delimiter)
+            return csv.reader(io.StringIO(file_content), delimiter=delimiter), delimiter
         try:
             dialect = csv.Sniffer().sniff(sample, delimiters=";,\t|")
-            return csv.reader(io.StringIO(file_content), dialect)
+            return csv.reader(io.StringIO(file_content), dialect), dialect.delimiter
         except csv.Error:
             # Fallback: choose delimiter by frequency across first few lines.
             first_lines = "\n".join(sample.splitlines()[:20])
             candidates = [";", ",", "\t", "|"]
             counts = {d: first_lines.count(d) for d in candidates}
             best = max(counts, key=counts.get)
-            return csv.reader(io.StringIO(file_content), delimiter=best)
+            return csv.reader(io.StringIO(file_content), delimiter=best), best
 
     def _row_to_line(self, row: list[str], delimiter: str) -> str:
         buf = io.StringIO()
@@ -98,18 +98,10 @@ class CSVBankParser(BankParser):
         merchant_columns: list[str],
         description_columns: list[str],
     ) -> list[ParsedTransaction]:
-        reader = self._make_reader(file_content, delimiter)
+        reader, active_delim = self._make_reader(file_content, delimiter)
         header = self._find_header(reader)
         if header is None:
             raise ValueError("Could not detect CSV header row")
-
-        # If delimiter wasn't explicitly set, infer it from the reader dialect if possible.
-        active_delim = delimiter or ";"
-        if delimiter is None and hasattr(reader, "dialect"):
-            try:
-                active_delim = reader.dialect.delimiter
-            except Exception:
-                pass
 
         header_clean = [c.strip().strip('"') for c in header]
         header_to_idx = {h: i for i, h in enumerate(header_clean)}
@@ -182,13 +174,14 @@ class CSVBankParser(BankParser):
         return transactions
 
     def parse(self, file_content: str, filename: str) -> list[ParsedTransaction]:
-        reader = self._make_reader(file_content, delimiter=None)
+        reader, active_delim = self._make_reader(file_content, delimiter=None)
 
         header = self._find_header(reader)
         if header is None:
             raise ValueError("Could not detect CSV header row")
 
-        col_map = self._map_columns(header)
+        header_clean = [c.strip().strip('"') for c in header]
+        col_map = self._map_columns(header_clean)
         if "date" not in col_map or "amount" not in col_map:
             raise ValueError(
                 f"CSV must contain date and amount columns. Detected: {col_map}"
@@ -199,7 +192,21 @@ class CSVBankParser(BankParser):
             if not row or all(c.strip() == "" for c in row):
                 continue
             try:
-                txn = self._parse_row(row, col_map)
+                raw_row_json = json.dumps(
+                    {
+                        h: (row[i] if i < len(row) else "")
+                        for i, h in enumerate(header_clean)
+                    },
+                    ensure_ascii=False,
+                )
+                raw_row_line = self._row_to_line(row, active_delim)
+
+                txn = self._parse_row(
+                    row,
+                    col_map,
+                    raw_row_json=raw_row_json,
+                    raw_row_line=raw_row_line,
+                )
                 if txn is not None:
                     transactions.append(txn)
             except (ValueError, IndexError):
@@ -236,7 +243,12 @@ class CSVBankParser(BankParser):
         return col_map
 
     def _parse_row(
-        self, row: list[str], col_map: dict[str, int]
+        self,
+        row: list[str],
+        col_map: dict[str, int],
+        *,
+        raw_row_json: str | None = None,
+        raw_row_line: str | None = None,
     ) -> ParsedTransaction | None:
         date_val = _parse_date(row[col_map["date"]])
         amount = _parse_amount(row[col_map["amount"]])
@@ -259,4 +271,6 @@ class CSVBankParser(BankParser):
             raw_description=full_raw,
             description=description,
             merchant=merchant,
+            raw_row_json=raw_row_json,
+            raw_row_line=raw_row_line,
         )

@@ -42,3 +42,43 @@ def test_similarity_service_finds_same_merchant_unclassified(seeded_db):
     ids = [r.transaction_id for r in results]
     assert extra.id in ids
 
+
+def test_similarity_service_operator_pool_matches_raw_text(seeded_db):
+    seed = Transaction(
+        account_id=1,
+        import_batch_id=None,
+        date=date(2026, 2, 1),
+        amount=-12.34,
+        raw_description="PAYPAL *ACME STORE 12345",
+        description="PAYPAL *ACME STORE 12345",
+        merchant="PAYPAL",
+        currency="EUR",
+        dedup_hash="unit-test-paypal-seed",
+        final_category_id=1,
+        classification_source="human",
+        confidence=1.0,
+    )
+
+    candidate = Transaction(
+        account_id=1,
+        import_batch_id=None,
+        date=date(2026, 2, 2),
+        amount=-12.34,
+        raw_description="PayPal *ACME Store 67890",
+        description="PayPal *ACME Store 67890",
+        merchant="(imported) unknown",
+        currency="EUR",
+        dedup_hash="unit-test-paypal-candidate",
+        predicted_category_id=None,
+        final_category_id=None,
+        classification_source=None,
+        confidence=None,
+    )
+
+    seeded_db.add_all([seed, candidate])
+    seeded_db.commit()
+
+    results = find_similar_unclassified(seeded_db, seed.id, limit=10, min_score=50)
+    ids = [r.transaction_id for r in results]
+    assert candidate.id in ids
+

@@ -88,3 +88,59 @@ def test_classify_invalid_transaction_404(client):
     )
     assert res.status_code == 404
 
+
+def test_bulk_update_fields_updates_unclassified_and_skips_classified(client, sample_csv: str):
+    _upload(client, sample_csv)
+    txns = client.get("/api/transactions/").json()["items"]
+    assert len(txns) >= 3
+
+    cats = client.get("/api/categories/").json()
+    cat_id = next(c["id"] for c in cats if c.get("parent_id") is not None)
+
+    classified_id = txns[0]["id"]
+    res = client.post(
+        f"/api/transactions/{classified_id}/classify",
+        json={"category_id": cat_id, "merchant": "REWE"},
+    )
+    assert res.status_code == 200
+
+    all_ids = [t["id"] for t in txns]
+    bulk = client.post(
+        "/api/transactions/bulk-update-fields",
+        json={"transaction_ids": all_ids, "merchant": "UPDATED", "re_predict": False},
+    )
+    assert bulk.status_code == 200
+    body = bulk.json()
+    assert body["updated"] == len(all_ids) - 1
+    assert body["skipped"] == 1
+
+    after = client.get("/api/transactions/").json()["items"]
+    updated = {t["id"]: t for t in after}
+    assert updated[classified_id]["merchant"] != "UPDATED"
+    for tid in all_ids[1:]:
+        assert updated[tid]["merchant"] == "UPDATED"
+
+
+def test_suggest_field_updates_returns_operator_candidates(client):
+    sample = "\n".join(
+        [
+            "Some Bank Export",
+            "Generated: 01.01.2026",
+            "Datum;Betrag;Beschreibung;Auftraggeber/Empfänger",
+            "02.01.2026;-10,00;PAYPAL *ACME STORE 12345;PAYPAL",
+            "03.01.2026;-9,50;PAYPAL *ACME STORE 67890;SOMETHING ELSE",
+            "04.01.2026;-12,00;PAYPAL *OTHER MERCHANT 11111;PAYPAL",
+            "",
+        ]
+    )
+    _upload(client, sample)
+    txns = client.get("/api/transactions/?page_size=50").json()["items"]
+    seed = next(t for t in txns if "PAYPAL" in t["raw_description"])
+
+    res = client.get(f"/api/transactions/{seed['id']}/suggest-field-updates?limit=10&min_score=50&only_unclassified=true")
+    assert res.status_code == 200
+    items = res.json()
+    assert len(items) >= 1
+    # Ensure we don't suggest the seed txn itself
+    assert all(i["transaction_id"] != seed["id"] for i in items)
+

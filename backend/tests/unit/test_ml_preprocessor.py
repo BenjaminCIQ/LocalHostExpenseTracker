@@ -21,3 +21,9 @@ def test_build_features_combines_merchant_and_description():
     assert "rewe" in f
     assert "groceries" in f
 
+
+def test_build_features_omits_operator_merchant():
+    f = build_features("PAYPAL *ACME STORE", "PAYPAL")
+    assert "paypal" not in f
+    assert "acme" in f
+

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.account import Account
 from app.models.category import Category
+from app.models.person import Person
 
 DEFAULT_CATEGORIES = [
     # (name, parent_name_or_None, is_income, sort_order)
@@ -99,12 +100,20 @@ def seed_default_account(db: Session) -> None:
     if db.query(Account).count() > 0:
         return
 
+    # Ensure at least one default person exists.
+    person = db.query(Person).order_by(Person.id.asc()).first()
+    if person is None:
+        person = Person(name="Me")
+        db.add(person)
+        db.flush()
+
     account = Account(
         name="Main Account",
         bank_name="",
         account_type="checking",
         currency="EUR",
         owner="",
+        person_id=person.id,
     )
     db.add(account)
     db.commit()

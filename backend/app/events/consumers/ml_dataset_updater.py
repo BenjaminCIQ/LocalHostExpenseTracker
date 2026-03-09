@@ -20,7 +20,7 @@ def handle_transaction_classified(event: Event) -> None:
             .first()
         )
         if existing:
-            existing.text_features = data["description"]
+            existing.text_features = data.get("raw_description") or data["description"]
             existing.merchant = data.get("merchant", "")
             existing.amount = data["amount"]
             existing.category_id = data["category_id"]
@@ -28,7 +28,7 @@ def handle_transaction_classified(event: Event) -> None:
         else:
             entry = TrainingData(
                 transaction_id=data["transaction_id"],
-                text_features=data["description"],
+                text_features=data.get("raw_description") or data["description"],
                 merchant=data.get("merchant", ""),
                 amount=data["amount"],
                 category_id=data["category_id"],

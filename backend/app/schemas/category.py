@@ -5,7 +5,7 @@ class CategoryCreate(BaseModel):
     name: str
     parent_id: int | None = None
     is_income: bool = False
-    sort_order: int = 0
+    sort_order: int | None = None
 
 
 class CategoryRead(BaseModel):

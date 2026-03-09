@@ -6,6 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.account import Account
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.schemas.dashboard import (
@@ -22,12 +23,17 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 @router.get("/", response_model=DashboardResponse)
 def get_dashboard(
     account_id: int | None = None,
+    person_id: int | None = None,
     month: str | None = Query(None, description="Optional YYYY-MM filter"),
     db: Session = Depends(get_db),
 ):
     query = db.query(Transaction)
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)
+    if person_id is not None:
+        query = query.join(Account, Transaction.account_id == Account.id).filter(
+            Account.person_id == person_id
+        )
     if month is not None:
         if not re.fullmatch(r"\d{4}-\d{2}", month):
             raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
@@ -100,6 +106,7 @@ def get_dashboard(
 def get_monthly_breakdown(
     months: int = Query(6, ge=1, le=36),
     account_id: int | None = None,
+    person_id: int | None = None,
     db: Session = Depends(get_db),
 ):
     """Return monthly income/expense totals for the last N months (including current month)."""
@@ -118,6 +125,10 @@ def get_monthly_breakdown(
     tx_query = db.query(Transaction)
     if account_id is not None:
         tx_query = tx_query.filter(Transaction.account_id == account_id)
+    if person_id is not None:
+        tx_query = tx_query.join(Account, Transaction.account_id == Account.id).filter(
+            Account.person_id == person_id
+        )
 
     out: list[MonthlyTotals] = []
     def _add_month(d: date) -> date:

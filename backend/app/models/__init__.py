@@ -4,6 +4,8 @@ from app.models.classification_log import ClassificationLog
 from app.models.import_batch import ImportBatch
 from app.models.import_profile import ImportProfile
 from app.models.merchant_memory import MerchantCategoryStats
+from app.models.parsing_rule import ParsingRule
+from app.models.person import Person
 from app.models.rule import Rule, RuleCondition
 from app.models.training_data import TrainingData
 from app.models.transaction import Transaction
@@ -16,6 +18,8 @@ __all__ = [
     "ImportBatch",
     "ImportProfile",
     "MerchantCategoryStats",
+    "ParsingRule",
+    "Person",
     "Rule",
     "RuleCondition",
     "TrainingData",

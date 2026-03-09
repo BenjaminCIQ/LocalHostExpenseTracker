@@ -4,11 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { api, type Category, type CategoryCreate } from "@/lib/api";
 
-function bySort(a: Category, b: Category) {
-  if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-  return a.name.localeCompare(b.name);
-}
-
 function catLabel(categories: Category[], id: number | null) {
   if (id === null) return "(none)";
   return categories.find((c) => c.id === id)?.name ?? `#${id}`;
@@ -22,7 +17,6 @@ export default function CategoriesPage() {
     name: "",
     parent_id: null,
     is_income: false,
-    sort_order: 0,
   });
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -43,14 +37,15 @@ export default function CategoriesPage() {
   }, []);
 
   const sorted = useMemo(() => {
-    return [...categories].sort(bySort);
+    // Backend already returns categories in hierarchy order.
+    return categories;
   }, [categories]);
 
   const handleCreate = async () => {
     if (!newCat.name.trim()) return;
     try {
       await api.createCategory({ ...newCat, name: newCat.name.trim() });
-      setNewCat({ name: "", parent_id: null, is_income: false, sort_order: 0 });
+      setNewCat({ name: "", parent_id: null, is_income: false });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Create failed");
@@ -63,7 +58,6 @@ export default function CategoriesPage() {
       name: c.name,
       parent_id: c.parent_id,
       is_income: c.is_income,
-      sort_order: c.sort_order,
     });
   };
 
@@ -139,15 +133,10 @@ export default function CategoriesPage() {
               </Select>
             </div>
             <div>
-              <label className="text-sm text-muted-foreground">Sort order</label>
-              <input
-                className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
-                type="number"
-                value={newCat.sort_order}
-                onChange={(e) =>
-                  setNewCat((s) => ({ ...s, sort_order: Number(e.target.value) }))
-                }
-              />
+              <label className="text-sm text-muted-foreground">Order</label>
+              <div className="mt-2 text-xs text-muted-foreground">
+                Automatic (tree order)
+              </div>
             </div>
             <div className="flex items-center justify-between gap-3">
               <label className="flex items-center gap-2 text-sm">
@@ -180,7 +169,6 @@ export default function CategoriesPage() {
                   <th className="text-left p-3 font-medium">Name</th>
                   <th className="text-left p-3 font-medium">Parent</th>
                   <th className="text-left p-3 font-medium">Type</th>
-                  <th className="text-right p-3 font-medium">Sort</th>
                   <th className="text-right p-3 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -249,22 +237,6 @@ export default function CategoriesPage() {
                           <span>{c.is_income ? "Income" : "Expense"}</span>
                         )}
                       </td>
-                      <td className="p-3 text-right font-mono">
-                        {isEditing ? (
-                          <input
-                            className="w-24 h-9 rounded-md border border-border bg-background px-3 text-sm text-right"
-                            type="number"
-                            value={editCat!.sort_order}
-                            onChange={(e) =>
-                              setEditCat((s) =>
-                                s ? { ...s, sort_order: Number(e.target.value) } : s
-                              )
-                            }
-                          />
-                        ) : (
-                          c.sort_order
-                        )}
-                      </td>
                       <td className="p-3">
                         <div className="flex justify-end gap-2">
                           {isEditing ? (
@@ -301,7 +273,7 @@ export default function CategoriesPage() {
                 })}
                 {sorted.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                    <td colSpan={4} className="p-8 text-center text-muted-foreground">
                       No categories found.
                     </td>
                   </tr>

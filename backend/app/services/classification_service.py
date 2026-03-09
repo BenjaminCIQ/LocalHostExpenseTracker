@@ -47,6 +47,7 @@ def classify_transaction_manual(
         data={
             "transaction_id": transaction.id,
             "description": transaction.description,
+            "raw_description": transaction.raw_description,
             "merchant": transaction.merchant,
             "amount": transaction.amount,
             "category_id": category_id,
