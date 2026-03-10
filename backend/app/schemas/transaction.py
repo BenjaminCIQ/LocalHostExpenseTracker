@@ -24,6 +24,10 @@ class TransactionRead(BaseModel):
     transfer_confidence: float | None = None
     transfer_match_source: str | None = None
     is_internal_transfer: bool
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
+    deleted_by_person_id: int | None = None
+    delete_reason: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -154,6 +158,19 @@ class TransferCandidate(BaseModel):
     candidate_currency: str
     score: float
     reason: str
+    reasons: list[str] = Field(default_factory=list)
+    transaction_description: str = ""
+    candidate_description: str = ""
+    transaction_raw_description: str = ""
+    candidate_raw_description: str = ""
+    transaction_merchant: str = ""
+    candidate_merchant: str = ""
+    transaction_kind: str = ""
+    candidate_kind: str = ""
+    transaction_is_internal_transfer: bool = False
+    candidate_is_internal_transfer: bool = False
+    transaction_transfer_group_id: str | None = None
+    candidate_transfer_group_id: str | None = None
 
 
 class TransferAutoLinkResponse(BaseModel):

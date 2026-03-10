@@ -16,8 +16,7 @@ export type FlatCategoryNode = {
 };
 
 function sortCategories(a: Category, b: Category): number {
-  if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-  return a.name.localeCompare(b.name);
+  return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
 
 export function buildCategoryTree(categories: Category[]): CategoryTreeNode[] {

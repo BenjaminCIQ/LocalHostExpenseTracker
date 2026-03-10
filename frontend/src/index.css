@@ -93,6 +93,96 @@
   --color-card-foreground: #1f3522;
 }
 
+[data-theme="midnight"] {
+  --color-background: #0d0d1a;
+  --color-foreground: #e8e6f2;
+  --color-muted: #13132a;
+  --color-muted-foreground: #8b87ae;
+  --color-border: #1f1e3a;
+  --color-primary: #818cf8;
+  --color-primary-foreground: #0d0d1a;
+  --color-destructive: #f87171;
+  --color-destructive-foreground: #1f2937;
+  --color-accent: #1a1936;
+  --color-accent-foreground: #c4b5fd;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-card: #111120;
+  --color-card-foreground: #e8e6f2;
+}
+
+[data-theme="nord"] {
+  --color-background: #2e3440;
+  --color-foreground: #eceff4;
+  --color-muted: #3b4252;
+  --color-muted-foreground: #9099aa;
+  --color-border: #4c566a;
+  --color-primary: #88c0d0;
+  --color-primary-foreground: #2e3440;
+  --color-destructive: #bf616a;
+  --color-destructive-foreground: #eceff4;
+  --color-accent: #434c5e;
+  --color-accent-foreground: #d8dee9;
+  --color-success: #a3be8c;
+  --color-warning: #ebcb8b;
+  --color-card: #3b4252;
+  --color-card-foreground: #eceff4;
+}
+
+[data-theme="dracula"] {
+  --color-background: #282a36;
+  --color-foreground: #f8f8f2;
+  --color-muted: #343746;
+  --color-muted-foreground: #6272a4;
+  --color-border: #44475a;
+  --color-primary: #bd93f9;
+  --color-primary-foreground: #282a36;
+  --color-destructive: #ff5555;
+  --color-destructive-foreground: #f8f8f2;
+  --color-accent: #44475a;
+  --color-accent-foreground: #caa9fa;
+  --color-success: #50fa7b;
+  --color-warning: #f1fa8c;
+  --color-card: #21222c;
+  --color-card-foreground: #f8f8f2;
+}
+
+[data-theme="ember"] {
+  --color-background: #120c04;
+  --color-foreground: #f5e6d0;
+  --color-muted: #1e1308;
+  --color-muted-foreground: #a07040;
+  --color-border: #3a2208;
+  --color-primary: #f97316;
+  --color-primary-foreground: #120c04;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #f5e6d0;
+  --color-accent: #2a1a08;
+  --color-accent-foreground: #fcd34d;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-card: #180e06;
+  --color-card-foreground: #f5e6d0;
+}
+
+[data-theme="rose"] {
+  --color-background: #fff1f2;
+  --color-foreground: #4c0519;
+  --color-muted: #ffe4e6;
+  --color-muted-foreground: #9f1239;
+  --color-border: #fecdd3;
+  --color-primary: #e11d48;
+  --color-primary-foreground: #fff1f2;
+  --color-destructive: #991b1b;
+  --color-destructive-foreground: #ffffff;
+  --color-accent: #fda4af;
+  --color-accent-foreground: #881337;
+  --color-success: #15803d;
+  --color-warning: #d97706;
+  --color-card: #fff5f6;
+  --color-card-foreground: #4c0519;
+}
+
 body {
   font-family:
     "Inter",
@@ -101,4 +191,93 @@ body {
     sans-serif;
   background-color: var(--color-muted);
   color: var(--color-foreground);
+}
+
+/* ── react-grid-layout resize handles ── */
+.react-grid-item > .react-resizable-handle {
+  z-index: 20;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-e {
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 100%;
+  margin-top: 0;
+  transform: none;
+  cursor: ew-resize;
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-w {
+  top: 0;
+  left: 0;
+  width: 14px;
+  height: 100%;
+  margin-top: 0;
+  transform: none;
+  cursor: ew-resize;
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-s {
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 14px;
+  margin-left: 0;
+  transform: none;
+  cursor: ns-resize;
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-e::after,
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-w::after,
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-s::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-e:hover::after,
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-w:hover::after,
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-s:hover::after {
+  background: color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-se {
+  z-index: 21;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-sw {
+  z-index: 21;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-se::after {
+  border-right: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
+}
+
+.layout-editing .react-grid-item > .react-resizable-handle.react-resizable-handle-sw::after {
+  left: 3px;
+  right: auto;
+  border-left: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-e::after,
+.react-grid-item > .react-resizable-handle.react-resizable-handle-w::after,
+.react-grid-item > .react-resizable-handle.react-resizable-handle-s::after {
+  display: none;
 }

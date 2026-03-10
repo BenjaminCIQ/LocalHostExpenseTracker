@@ -5,13 +5,13 @@ import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
-function MerchantInsightsWidget({ filters }: WidgetProps) {
+function MerchantInsightsWidget({ filters, globalControls }: WidgetProps) {
   const [rows, setRows] = useState<MerchantRankingItem[]>([]);
   useEffect(() => {
-    api.getMerchantRanking({ ...toAnalyticsParams(filters), limit: 12 })
+    api.getMerchantRanking({ ...toAnalyticsParams(filters, globalControls), limit: 12 })
       .then((res) => setRows(res.items))
       .catch(() => setRows([]));
-  }, [filters]);
+  }, [filters, globalControls]);
 
   if (!rows.length) return <div className="text-sm text-muted-foreground">No merchant ranking data yet.</div>;
   return (

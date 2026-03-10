@@ -14,15 +14,17 @@ import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
+import { applyZoomWindow, clearWidgetZoom, readWidgetZoom } from "@/lib/widgets/zoomState";
 
-function CashFlowForecastWidget({ filters }: WidgetProps) {
+function CashFlowForecastWidget({ filters, globalControls, widgetState, setWidgetState }: WidgetProps) {
   const { chartColors } = useTheme();
+  const zoom = readWidgetZoom(widgetState);
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   useEffect(() => {
-    api.getAnalyticsTimeseries({ ...toAnalyticsParams(filters), granularity: "monthly" })
+    api.getAnalyticsTimeseries({ ...toAnalyticsParams(filters, globalControls), granularity: "monthly" })
       .then((res) => setRows(res.points))
       .catch(() => setRows([]));
-  }, [filters]);
+  }, [filters, globalControls]);
 
   const data = useMemo(() => {
     if (!rows.length) return [];
@@ -37,12 +39,25 @@ function CashFlowForecastWidget({ filters }: WidgetProps) {
     }
     return base;
   }, [rows]);
+  const chartRows = useMemo(
+    () => applyZoomWindow(data, zoom, (row) => row.period),
+    [data, zoom]
+  );
 
   if (!data.length) return <div className="text-sm text-muted-foreground">No cash-flow data yet.</div>;
   return (
-    <div className="h-72">
+    <div className="space-y-2">
+      <div>
+        <button
+          className="rounded-md border border-border px-2 py-1 text-xs"
+          onClick={() => setWidgetState?.(clearWidgetZoom(widgetState))}
+        >
+          Reset zoom
+        </button>
+      </div>
+      <div className="h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data}>
+        <AreaChart data={chartRows}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="period" />
           <YAxis />
@@ -63,6 +78,7 @@ function CashFlowForecastWidget({ filters }: WidgetProps) {
           />
         </AreaChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }

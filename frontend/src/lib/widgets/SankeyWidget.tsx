@@ -8,7 +8,7 @@ import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
-function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
+function SankeyWidget({ filters, globalControls, widgetState, setWidgetState }: WidgetProps) {
   const { chartColors } = useTheme();
   const [nodes, setNodes] = useState<SankeyNode[]>([]);
   const [links, setLinks] = useState<SankeyLink[]>([]);
@@ -30,6 +30,9 @@ function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
   const [includeTransfers, setIncludeTransfers] = useState<boolean>(
     Boolean(widgetState?.includeTransfers ?? false)
   );
+  const [detailZoom, setDetailZoom] = useState<number>(
+    Number(widgetState?.detailZoom ?? 2)
+  );
 
   useEffect(() => {
     setWidgetState?.({
@@ -39,6 +42,7 @@ function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
       maxNodes,
       includeUncategorized,
       includeTransfers,
+      detailZoom,
     });
   }, [
     includeTransfers,
@@ -48,11 +52,12 @@ function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
     setWidgetState,
     showAdvanced,
     showControls,
+    detailZoom,
   ]);
 
   useEffect(() => {
     api
-      .getSankey({ ...toAnalyticsParams(filters), includeTransfers })
+      .getSankey({ ...toAnalyticsParams(filters, globalControls), includeTransfers })
       .then((res) => {
         setNodes(res.nodes);
         setLinks(res.links);
@@ -61,15 +66,18 @@ function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
         setNodes([]);
         setLinks([]);
       });
-  }, [filters, includeTransfers]);
+  }, [filters, globalControls, includeTransfers]);
 
   if (!nodes.length || !links.length) {
     return <div className="text-sm text-muted-foreground">Not enough data for Sankey.</div>;
   }
 
+  const effectiveMaxNodes = Math.min(120, maxNodes + detailZoom * 6);
+  const effectiveMinLinkValue = Math.max(0, minLinkValue - detailZoom * 8);
+
   const filteredLinks = links.filter((link) => {
     if (link.value <= 0) return false;
-    if (link.value < minLinkValue) return false;
+    if (link.value < effectiveMinLinkValue) return false;
     if (includeUncategorized) return true;
     const sourceLabel = nodes.find((n) => n.id === link.source)?.label.toLowerCase() ?? "";
     const targetLabel = nodes.find((n) => n.id === link.target)?.label.toLowerCase() ?? "";
@@ -82,7 +90,7 @@ function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
   }
   const chartNodes = nodes
     .filter((node) => usedNodeIds.has(node.id))
-    .slice(0, maxNodes)
+    .slice(0, effectiveMaxNodes)
     .map((node) => ({ id: node.id, label: node.label }));
   const allowedNodeIds = new Set(chartNodes.map((n) => n.id));
   const chartLinks = filteredLinks
@@ -92,7 +100,6 @@ function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
       target: link.target,
       value: Number(link.value.toFixed(2)),
     }));
-
   if (!chartLinks.length) {
     return (
       <div className="text-sm text-muted-foreground">
@@ -109,14 +116,34 @@ function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
         showAdvanced={showAdvanced}
         onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
         advanced={
-          <ThresholdSlider
-            label="Max nodes"
-            min={10}
-            max={60}
-            step={1}
-            value={maxNodes}
-            onChange={setMaxNodes}
-          />
+          <div className="space-y-2">
+            <ThresholdSlider
+              label="Max nodes"
+              min={10}
+              max={60}
+              step={1}
+              value={maxNodes}
+              onChange={setMaxNodes}
+            />
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">Detail zoom</div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="rounded-md border border-border px-2 py-1 text-xs"
+                  onClick={() => setDetailZoom((prev) => Math.max(0, prev - 1))}
+                >
+                  Less detail
+                </button>
+                <span className="text-xs text-muted-foreground">Level {detailZoom}</span>
+                <button
+                  className="rounded-md border border-border px-2 py-1 text-xs"
+                  onClick={() => setDetailZoom((prev) => Math.min(8, prev + 1))}
+                >
+                  More detail
+                </button>
+              </div>
+            </div>
+          </div>
         }
       >
         <div className="grid gap-2 md:grid-cols-2">
@@ -144,6 +171,9 @@ function SankeyWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
             />
             Include transfers
           </label>
+          <div className="text-xs text-muted-foreground">
+            Effective filters: up to {effectiveMaxNodes} nodes, min link {effectiveMinLinkValue.toFixed(0)}
+          </div>
         </div>
       </ControlsSection>
       <div className="h-80">

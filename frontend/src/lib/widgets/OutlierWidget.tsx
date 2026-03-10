@@ -7,7 +7,7 @@ import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
-function OutlierWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
+function OutlierWidget({ filters, globalControls, widgetState, setWidgetState }: WidgetProps) {
   const [rows, setRows] = useState<OutlierItem[]>([]);
   const [showControls, setShowControls] = useState<boolean>(
     Boolean(widgetState?.showControls ?? false)
@@ -29,10 +29,10 @@ function OutlierWidget({ filters, widgetState, setWidgetState }: WidgetProps) {
   const limit = sensitivity < 34 ? 8 : sensitivity < 67 ? 15 : 30;
   useEffect(() => {
     api
-      .getOutliers({ ...toAnalyticsParams(filters), limit, includeTransfers })
+      .getOutliers({ ...toAnalyticsParams(filters, globalControls), limit, includeTransfers })
       .then((res) => setRows(res.items))
       .catch(() => setRows([]));
-  }, [filters, limit, includeTransfers]);
+  }, [filters, globalControls, limit, includeTransfers]);
 
   useEffect(() => {
     setWidgetState?.({

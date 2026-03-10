@@ -188,7 +188,7 @@ export default function CategoryTreePicker({
                   {row.hasChildren ? (
                     <button
                       type="button"
-                      className="mr-1 rounded p-0.5 hover:bg-muted"
+                      className="mr-1 inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/70 bg-background hover:bg-muted"
                       onClick={(e) => {
                         e.preventDefault();
                         setExpandedIds((prev) => {
@@ -201,13 +201,13 @@ export default function CategoryTreePicker({
                       aria-label={`Toggle ${row.name}`}
                     >
                       {expandedIds.has(row.id) || search.trim() ? (
-                        <ChevronDown className="h-3 w-3" />
+                        <ChevronDown className="h-4 w-4" />
                       ) : (
-                        <ChevronRight className="h-3 w-3" />
+                        <ChevronRight className="h-4 w-4" />
                       )}
                     </button>
                   ) : (
-                    <span className="mr-1 inline-block w-4" />
+                    <span className="mr-1 inline-block w-6" />
                   )}
                 </span>
                 <input

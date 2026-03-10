@@ -6,21 +6,24 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { api, type AnalyticsCategoryAmount, type AnalyticsTimeseriesPoint } from "@/lib/api";
+import { api, type AnalyticsCategoryAmount, type AnalyticsTimeseriesPoint, type Trip } from "@/lib/api";
 import CategoryMultiDropdown from "@/components/category/CategoryMultiDropdown";
 import { ControlsSection } from "@/components/widget-controls/ControlsSection";
+import { MerchantMultiSelect } from "@/components/widget-controls/MerchantMultiSelect";
 import { ThresholdSlider } from "@/components/widget-controls/ThresholdSlider";
 import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
+import { applyZoomWindow, clearWidgetZoom, readWidgetZoom } from "@/lib/widgets/zoomState";
 
 type SavedCategoryCombo = {
   name: string;
@@ -123,6 +126,34 @@ function parsePeriodStart(period: string, granularity: ChartGranularity): Date |
   return null;
 }
 
+function expandCategoryIdsWithDescendants(
+  selectedIds: number[],
+  categories: Array<{ id: number; parent_id: number | null }>
+): number[] {
+  if (!selectedIds.length || !categories.length) return selectedIds;
+  const childrenByParent = new Map<number, number[]>();
+  for (const category of categories) {
+    if (category.parent_id == null) continue;
+    const list = childrenByParent.get(category.parent_id) ?? [];
+    list.push(category.id);
+    childrenByParent.set(category.parent_id, list);
+  }
+  const expanded = new Set<number>(selectedIds);
+  const queue = [...selectedIds];
+  while (queue.length) {
+    const current = queue.shift();
+    if (current == null) continue;
+    const children = childrenByParent.get(current) ?? [];
+    for (const childId of children) {
+      if (!expanded.has(childId)) {
+        expanded.add(childId);
+        queue.push(childId);
+      }
+    }
+  }
+  return Array.from(expanded);
+}
+
 function InteractiveCategoryBarWidget({
   filters,
   globalControls,
@@ -130,12 +161,19 @@ function InteractiveCategoryBarWidget({
   setWidgetState,
 }: WidgetProps) {
   const { chartColors } = useTheme();
+  const zoom = readWidgetZoom(widgetState);
   const [granularity, setGranularity] = useState<
     "daily" | "weekly" | "monthly" | "quarterly" | "yearly"
   >(
-    globalControls?.granularity && globalControls.granularity !== "auto"
-      ? globalControls.granularity
-      : "monthly"
+    (widgetState?.granularity as
+      | "daily"
+      | "weekly"
+      | "monthly"
+      | "quarterly"
+      | "yearly") ??
+      (globalControls?.granularity && globalControls.granularity !== "auto"
+        ? globalControls.granularity
+        : "monthly")
   );
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<AnalyticsCategoryAmount[]>([]);
@@ -148,7 +186,11 @@ function InteractiveCategoryBarWidget({
       sort_order: number;
     }>
   >([]);
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>(
+    Array.isArray(widgetState?.selectedCategoryIds)
+      ? (widgetState?.selectedCategoryIds as number[]).filter((id) => Number.isFinite(Number(id)))
+      : []
+  );
   const [mode, setMode] = useState<"combined" | "individual">(
     (widgetState?.mode as "combined" | "individual") ?? "combined"
   );
@@ -177,12 +219,28 @@ function InteractiveCategoryBarWidget({
   const [showEmptyPeriods, setShowEmptyPeriods] = useState<boolean>(
     widgetState?.showEmptyPeriods === undefined ? true : Boolean(widgetState?.showEmptyPeriods)
   );
+  const [merchantOptions, setMerchantOptions] = useState<string[]>([]);
+  const [selectedMerchantNames, setSelectedMerchantNames] = useState<string[]>(
+    Array.isArray(widgetState?.selectedMerchantNames)
+      ? (widgetState?.selectedMerchantNames as string[]).filter(
+          (value) => typeof value === "string" && value.trim()
+        )
+      : []
+  );
+  const [merchantSearch, setMerchantSearch] = useState<string>(
+    String(widgetState?.merchantSearch ?? "")
+  );
+  const [trips, setTrips] = useState<Trip[]>([]);
   const [windowBounds, setWindowBounds] = useState<{ min_date: string | null; max_date: string | null }>({
     min_date: null,
     max_date: null,
   });
 
   const colorPalette = chartColors.palette;
+  const selectedCategoryIdsExpanded = useMemo(
+    () => expandCategoryIdsWithDescendants(selectedCategoryIds, allCategories),
+    [selectedCategoryIds, allCategories]
+  );
 
   useEffect(() => {
     try {
@@ -204,8 +262,12 @@ function InteractiveCategoryBarWidget({
   }, []);
 
   useEffect(() => {
+    api.getTrips().then(setTrips).catch(() => setTrips([]));
+  }, []);
+
+  useEffect(() => {
     api
-      .getCategoryBreakdown(toAnalyticsParams(filters))
+      .getCategoryBreakdown(toAnalyticsParams(filters, globalControls))
       .then((res) => {
         const expensesOnly = res.items.filter((c) => c.total < 0).map((c) => ({ ...c, total: Math.abs(c.total) }));
         setCategoryOptions(expensesOnly);
@@ -214,7 +276,42 @@ function InteractiveCategoryBarWidget({
       .catch(() => {
         setCategoryOptions([]);
       });
-  }, [filters]);
+  }, [filters, globalControls]);
+
+  useEffect(() => {
+    api
+      .getMerchantRanking({
+        ...toAnalyticsParams(filters, globalControls, {
+          categoryIds: selectedCategoryIdsExpanded.length ? selectedCategoryIdsExpanded : undefined,
+        }),
+        includeTransfers,
+        limit: 100,
+      })
+      .then((res) => {
+        const names = res.items
+          .map((item) => item.merchant?.trim())
+          .filter((name): name is string => Boolean(name));
+        if (names.length > 0 || selectedCategoryIdsExpanded.length === 0) {
+          setMerchantOptions(Array.from(new Set(names)).sort((a, b) => a.localeCompare(b)));
+          return;
+        }
+        // Fallback: if selected categories produced no merchants, show current-scope merchants.
+        api
+          .getMerchantRanking({
+            ...toAnalyticsParams(filters, globalControls),
+            includeTransfers,
+            limit: 100,
+          })
+          .then((fallbackRes) => {
+            const fallbackNames = fallbackRes.items
+              .map((item) => item.merchant?.trim())
+              .filter((name): name is string => Boolean(name));
+            setMerchantOptions(Array.from(new Set(fallbackNames)).sort((a, b) => a.localeCompare(b)));
+          })
+          .catch(() => setMerchantOptions([]));
+      })
+      .catch(() => setMerchantOptions([]));
+  }, [filters, globalControls, includeTransfers, selectedCategoryIdsExpanded]);
 
   useEffect(() => {
     api
@@ -229,17 +326,21 @@ function InteractiveCategoryBarWidget({
   useEffect(() => {
     api
       .getAnalyticsTimeseries({
-        ...toAnalyticsParams(filters),
+        ...toAnalyticsParams(filters, globalControls, {
+          categoryIds: selectedCategoryIdsExpanded.length ? selectedCategoryIdsExpanded : undefined,
+          merchantNames: selectedMerchantNames.length ? selectedMerchantNames : undefined,
+        }),
         granularity,
-        categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
         includeTransfers,
       })
       .then((res) => setRows(res.points))
       .catch(() => setRows([]));
-  }, [filters, granularity, selectedCategoryIds, includeTransfers]);
+  }, [filters, globalControls, granularity, selectedCategoryIdsExpanded, selectedMerchantNames, includeTransfers]);
 
   useEffect(() => {
     setWidgetState?.({
+      granularity,
+      selectedCategoryIds,
       mode,
       search,
       showControls,
@@ -250,10 +351,14 @@ function InteractiveCategoryBarWidget({
       chartType,
       showTotalExpenses,
       showEmptyPeriods,
+      selectedMerchantNames,
+      merchantSearch,
     });
   }, [
     chartType,
+    granularity,
     includeTransfers,
+    selectedCategoryIds,
     minContributionPct,
     mode,
     search,
@@ -262,8 +367,19 @@ function InteractiveCategoryBarWidget({
     showControls,
     showTotalExpenses,
     showEmptyPeriods,
+    selectedMerchantNames,
+    merchantSearch,
     topN,
   ]);
+
+  useEffect(() => {
+    if (!selectedMerchantNames.length) return;
+    const optionSet = new Set(merchantOptions);
+    const next = selectedMerchantNames.filter((name) => optionSet.has(name));
+    if (next.length !== selectedMerchantNames.length) {
+      setSelectedMerchantNames(next);
+    }
+  }, [merchantOptions, selectedMerchantNames]);
 
   const preparedRows = useMemo(() => {
     if (!rows.length) return [];
@@ -379,14 +495,18 @@ function InteractiveCategoryBarWidget({
   }, [mode, selectedCategoryIds, categoryById, colorPalette, chartColors.net]);
 
   const showExpenseComparison = showTotalExpenses && selectedCategoryIds.length > 0;
+  const zoomedChartRows = useMemo(
+    () => applyZoomWindow(chartRows, zoom, (row) => String(row.period)),
+    [chartRows, zoom]
+  );
 
   const averageReference = useMemo(() => {
-    if (!chartRows.length || !selectedSeries.length) return null;
+    if (!preparedRows.length || !selectedSeries.length) return null;
     const targetKey =
       mode === "combined" || selectedSeries.length === 1
         ? selectedSeries[0].key
         : "selectedCombined";
-    const values = chartRows.map((row) => Number(row[targetKey] ?? row.selectedCombined ?? 0));
+    const values = preparedRows.map((row) => Number(row[targetKey] ?? row.selectedCombined ?? 0));
     if (!values.length) return null;
     const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
     if (!Number.isFinite(mean)) return null;
@@ -394,7 +514,20 @@ function InteractiveCategoryBarWidget({
       value: mean,
       label: `Avg (${values.length} periods): ${formatCurrency(mean)}`,
     };
-  }, [chartRows, selectedSeries, mode, granularity]);
+  }, [preparedRows, selectedSeries, mode]);
+
+  const tripWindows = useMemo(() => {
+    if (globalControls?.excludeTripIncluded || !chartRows.length || !trips.length) return [];
+    const periodSet = new Set(chartRows.map((row) => String(row.period)));
+    const windows: Array<{ name: string; x1: string; x2: string }> = [];
+    for (const trip of trips) {
+      const x1 = periodKey(parseIsoDate(trip.start_date), granularity);
+      const x2 = periodKey(parseIsoDate(trip.end_date), granularity);
+      if (!periodSet.has(x1) && !periodSet.has(x2)) continue;
+      windows.push({ name: trip.name, x1, x2 });
+    }
+    return windows;
+  }, [chartRows, globalControls?.excludeTripIncluded, granularity, trips]);
 
   useEffect(() => {
     if (!filteredCategoryOptions.length) return;
@@ -514,6 +647,15 @@ function InteractiveCategoryBarWidget({
               onChange={setSelectedCategoryIds}
             />
           </div>
+          <MerchantMultiSelect
+            options={merchantOptions}
+            selected={selectedMerchantNames}
+            onChange={setSelectedMerchantNames}
+            search={merchantSearch}
+            onSearchChange={setMerchantSearch}
+            label="Merchants"
+            placeholder="All merchants"
+          />
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
@@ -538,6 +680,12 @@ function InteractiveCategoryBarWidget({
             />
             Show empty periods
           </label>
+          <button
+            className="rounded-md border border-border px-2 py-1 text-xs"
+            onClick={() => setWidgetState?.(clearWidgetZoom(widgetState))}
+          >
+            Reset zoom
+          </button>
         </ControlsSection>
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 p-2">
           <input
@@ -574,8 +722,25 @@ function InteractiveCategoryBarWidget({
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           {chartType === "bar" ? (
-            <BarChart data={chartRows}>
+            <BarChart data={zoomedChartRows}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              {tripWindows.map((window) => (
+                <ReferenceArea
+                  key={`${window.name}-${window.x1}-${window.x2}`}
+                  x1={window.x1}
+                  x2={window.x2}
+                  fill={chartColors.reference}
+                  fillOpacity={0.08}
+                  stroke={chartColors.reference}
+                  strokeDasharray="3 3"
+                  label={{
+                    value: window.name,
+                    position: "insideTopLeft",
+                    fontSize: 10,
+                    fill: chartColors.reference,
+                  }}
+                />
+              ))}
               <XAxis dataKey="period" />
               <YAxis />
               <Tooltip formatter={(value) => formatCurrency(Number(value))} />
@@ -607,8 +772,25 @@ function InteractiveCategoryBarWidget({
               )}
             </BarChart>
           ) : (
-            <LineChart data={chartRows}>
+            <LineChart data={zoomedChartRows}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              {tripWindows.map((window) => (
+                <ReferenceArea
+                  key={`${window.name}-${window.x1}-${window.x2}`}
+                  x1={window.x1}
+                  x2={window.x2}
+                  fill={chartColors.reference}
+                  fillOpacity={0.08}
+                  stroke={chartColors.reference}
+                  strokeDasharray="3 3"
+                  label={{
+                    value: window.name,
+                    position: "insideTopLeft",
+                    fontSize: 10,
+                    fill: chartColors.reference,
+                  }}
+                />
+              ))}
               <XAxis dataKey="period" />
               <YAxis />
               <Tooltip formatter={(value) => formatCurrency(Number(value))} />

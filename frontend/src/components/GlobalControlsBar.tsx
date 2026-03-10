@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { TripExclusionControl } from "@/components/widget-controls/TripExclusionControl";
+import { api, type Trip } from "@/lib/api";
 import { useDashboardFilters } from "@/lib/widgets/DashboardFiltersContext";
 
 const DATE_PRESETS = ["7D", "30D", "90D", "YTD", "1Y", "ALL"] as const;
@@ -9,8 +12,15 @@ export function GlobalControlsBar() {
     setGlobalGranularity,
     setScope,
     setValueMode,
+    setExcludeTripIncluded,
+    setExcludedTripIds,
     resetGlobal,
   } = useDashboardFilters();
+  const [trips, setTrips] = useState<Trip[]>([]);
+
+  useEffect(() => {
+    api.getTrips().then(setTrips).catch(() => setTrips([]));
+  }, []);
 
   return (
     <div className="rounded-md border border-border bg-card p-3">
@@ -97,6 +107,15 @@ export function GlobalControlsBar() {
         >
           Reset global controls
         </button>
+      </div>
+      <div className="mt-3">
+        <TripExclusionControl
+          enabled={globalControls.excludeTripIncluded}
+          selectedTripIds={globalControls.excludedTripIds}
+          trips={trips}
+          onEnabledChange={setExcludeTripIncluded}
+          onSelectedTripIdsChange={setExcludedTripIds}
+        />
       </div>
     </div>
   );

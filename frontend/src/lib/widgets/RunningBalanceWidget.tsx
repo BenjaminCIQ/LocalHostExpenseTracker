@@ -14,15 +14,17 @@ import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
+import { applyZoomWindow, clearWidgetZoom, readWidgetZoom } from "@/lib/widgets/zoomState";
 
-function RunningBalanceWidget({ filters }: WidgetProps) {
+function RunningBalanceWidget({ filters, globalControls, widgetState, setWidgetState }: WidgetProps) {
   const { chartColors } = useTheme();
+  const zoom = readWidgetZoom(widgetState);
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   useEffect(() => {
-    api.getAnalyticsTimeseries({ ...toAnalyticsParams(filters), granularity: "monthly" })
+    api.getAnalyticsTimeseries({ ...toAnalyticsParams(filters, globalControls), granularity: "monthly" })
       .then((res) => setRows(res.points))
       .catch(() => setRows([]));
-  }, [filters]);
+  }, [filters, globalControls]);
 
   const data = useMemo(() => {
     let cumulative = 0;
@@ -31,12 +33,25 @@ function RunningBalanceWidget({ filters }: WidgetProps) {
       return { period: row.period, cumulative: Number(cumulative.toFixed(2)) };
     });
   }, [rows]);
+  const chartRows = useMemo(
+    () => applyZoomWindow(data, zoom, (row) => row.period),
+    [data, zoom]
+  );
 
   if (!data.length) return <div className="text-sm text-muted-foreground">No running balance data yet.</div>;
   return (
-    <div className="h-72">
+    <div className="space-y-2">
+      <div>
+        <button
+          className="rounded-md border border-border px-2 py-1 text-xs"
+          onClick={() => setWidgetState?.(clearWidgetZoom(widgetState))}
+        >
+          Reset zoom
+        </button>
+      </div>
+      <div className="h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data}>
+        <AreaChart data={chartRows}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="period" />
           <YAxis />
@@ -50,6 +65,7 @@ function RunningBalanceWidget({ filters }: WidgetProps) {
           />
         </AreaChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }

@@ -57,6 +57,12 @@ class Transaction(Base):
     transfer_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     transfer_match_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_internal_transfer: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_by_person_id: Mapped[int | None] = mapped_column(
+        ForeignKey("persons.id"), nullable=True
+    )
+    delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow

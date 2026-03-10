@@ -23,7 +23,7 @@ See [expense_tracker_architecture.md](expense_tracker_architecture.md) for the f
 ```bash
 cd backend
 pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --host 0.0.0.0 --reload --port 8000
 ```
 
 The backend starts at http://localhost:8000. API docs at http://localhost:8000/docs.

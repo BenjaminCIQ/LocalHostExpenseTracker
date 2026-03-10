@@ -14,15 +14,15 @@ import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
 
-function SavingsRateWidget({ filters }: WidgetProps) {
+function SavingsRateWidget({ filters, globalControls }: WidgetProps) {
   const { chartColors } = useTheme();
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   useEffect(() => {
     api
-      .getAnalyticsTimeseries({ ...toAnalyticsParams(filters), granularity: "monthly" })
+      .getAnalyticsTimeseries({ ...toAnalyticsParams(filters, globalControls), granularity: "monthly" })
       .then((res) => setRows(res.points))
       .catch(() => setRows([]));
-  }, [filters]);
+  }, [filters, globalControls]);
 
   const data = useMemo(
     () =>

@@ -31,6 +31,67 @@ def test_transaction_bounds_endpoint(client, sample_csv: str):
     assert data["max_date"] is not None
     assert data["min_amount"] is not None
     assert data["max_amount"] is not None
+    assert "income_min" in data
+    assert "income_max" in data
+    assert "expense_min_abs" in data
+    assert "expense_max_abs" in data
+
+
+def test_transactions_support_separate_income_expense_ranges(client):
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-01",
+            "amount": 2000.0,
+            "description": "Salary",
+            "merchant": "Employer",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-02",
+            "amount": -120.0,
+            "description": "Groceries",
+            "merchant": "Store",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-03",
+            "amount": -800.0,
+            "description": "Rent",
+            "merchant": "Landlord",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-04",
+            "amount": 150.0,
+            "description": "Refund",
+            "merchant": "Shop",
+            "currency": "EUR",
+        },
+    )
+
+    res = client.get(
+        "/api/transactions/?income_min=1000&income_max=2500&expense_min_abs=100&expense_max_abs=200"
+    )
+    assert res.status_code == 200
+    amounts = [item["amount"] for item in res.json()["items"]]
+    assert 2000.0 in amounts
+    assert -120.0 in amounts
+    assert -800.0 not in amounts
+    assert 150.0 not in amounts
 
 
 def test_search_and_merchant_filter(client, sample_csv: str):
@@ -267,17 +328,72 @@ def test_transfer_candidates_and_auto_link(client):
     assert t1.status_code == 201
     assert t2.status_code == 201
 
-    cand = client.get("/api/transactions/transfer-candidates?limit=50")
+    cand = client.get(
+        "/api/transactions/transfer-candidates?limit=50&seed_limit=100&max_results=10&min_confidence=0.4&amount_tolerance=0.0&date_window_days=3"
+    )
     assert cand.status_code == 200
+    rows = cand.json()
     assert any(
         {row["transaction_id"], row["candidate_id"]} == {t1.json()["id"], t2.json()["id"]}
-        for row in cand.json()
+        for row in rows
     )
+    first = rows[0]
+    assert "reasons" in first
+    assert "transaction_description" in first
+    assert "candidate_description" in first
+    assert "transaction_merchant" in first
+    assert "candidate_merchant" in first
 
     linked = client.post("/api/transactions/transfers/auto-link?limit=50")
     assert linked.status_code == 200
     body = linked.json()
     assert body["reviewed"] >= 1
+
+
+def test_transfer_auto_link_honors_threshold_override(client):
+    a2 = client.post("/api/accounts/", json={"name": "Cash", "currency": "EUR"})
+    assert a2.status_code == 201
+    account_2_id = a2.json()["id"]
+
+    t1 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-12",
+            "amount": -199.0,
+            "description": "move to cash",
+            "merchant": "Internal",
+            "currency": "EUR",
+        },
+    )
+    t2 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": account_2_id,
+            "date": "2026-01-13",
+            "amount": 200.0,
+            "description": "move from checking",
+            "merchant": "Internal",
+            "currency": "EUR",
+        },
+    )
+    assert t1.status_code == 201
+    assert t2.status_code == 201
+    id1 = t1.json()["id"]
+    id2 = t2.json()["id"]
+
+    strict = client.post("/api/transactions/transfers/auto-link?limit=50&min_auto_confidence=0.99")
+    assert strict.status_code == 200
+    assert strict.json()["linked"] == 0
+
+    relaxed = client.post("/api/transactions/transfers/auto-link?limit=50&min_auto_confidence=0.4")
+    assert relaxed.status_code == 200
+    assert relaxed.json()["linked"] >= 1
+
+    tx1 = client.get(f"/api/transactions/{id1}").json()
+    tx2 = client.get(f"/api/transactions/{id2}").json()
+    assert tx1["transfer_group_id"] is not None
+    assert tx1["transfer_group_id"] == tx2["transfer_group_id"]
 
 
 def test_analytics_excludes_transfers_by_default_household_and_includes_for_account(client):
@@ -323,4 +439,103 @@ def test_analytics_excludes_transfers_by_default_household_and_includes_for_acco
     assert account_view.status_code == 200
     account_points = account_view.json()["points"]
     assert any(abs(p["expenses"]) > 0.001 for p in account_points)
+
+
+def test_analytics_trip_include_exclusion_and_trip_scoping(client, db_session):
+    from datetime import date
+
+    from app.models.trip import Trip, TripTransactionOverride
+
+    t1 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-02-01",
+            "amount": -100.0,
+            "description": "Trip lunch",
+            "merchant": "Trip Merchant A",
+            "currency": "EUR",
+        },
+    ).json()
+    t2 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-02-02",
+            "amount": -40.0,
+            "description": "Groceries",
+            "merchant": "Regular Merchant",
+            "currency": "EUR",
+        },
+    ).json()
+
+    trip_a = Trip(name="City Break", start_date=date(2026, 2, 1), end_date=date(2026, 2, 10))
+    trip_b = Trip(name="Weekend", start_date=date(2026, 2, 1), end_date=date(2026, 2, 10))
+    db_session.add(trip_a)
+    db_session.add(trip_b)
+    db_session.flush()
+    db_session.add(
+        TripTransactionOverride(
+            trip_id=trip_a.id,
+            transaction_id=t1["id"],
+            include=True,
+        )
+    )
+    db_session.add(
+        TripTransactionOverride(
+            trip_id=trip_b.id,
+            transaction_id=t2["id"],
+            include=True,
+        )
+    )
+    db_session.commit()
+
+    base = client.get("/api/analytics/timeseries?granularity=monthly")
+    assert base.status_code == 200
+    base_expenses = sum(point["expenses"] for point in base.json()["points"])
+    assert abs(base_expenses - 140.0) < 0.001
+
+    scoped = client.get(
+        f"/api/analytics/timeseries?granularity=monthly&exclude_trip_included=true&excluded_trip_ids={trip_a.id}"
+    )
+    assert scoped.status_code == 200
+    scoped_expenses = sum(point["expenses"] for point in scoped.json()["points"])
+    assert abs(scoped_expenses - 40.0) < 0.001
+
+    all_trip_excluded = client.get(
+        "/api/analytics/timeseries?granularity=monthly&exclude_trip_included=true"
+    )
+    assert all_trip_excluded.status_code == 200
+    excluded_expenses = sum(point["expenses"] for point in all_trip_excluded.json()["points"])
+    assert abs(excluded_expenses) < 0.001
+
+
+def test_analytics_merchant_name_filter(client):
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-03-01",
+            "amount": -30.0,
+            "description": "Coffee",
+            "merchant": "Cafe Alpha",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-03-02",
+            "amount": -90.0,
+            "description": "Store run",
+            "merchant": "Market Beta",
+            "currency": "EUR",
+        },
+    )
+
+    filtered = client.get("/api/analytics/timeseries?granularity=monthly&merchant_names=Cafe Alpha")
+    assert filtered.status_code == 200
+    filtered_expenses = sum(point["expenses"] for point in filtered.json()["points"])
+    assert abs(filtered_expenses - 30.0) < 0.001
 

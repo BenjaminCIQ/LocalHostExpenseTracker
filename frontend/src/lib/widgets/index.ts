@@ -18,6 +18,7 @@ import "@/lib/widgets/RunningBalanceWidget";
 import "@/lib/widgets/SankeyWidget";
 import "@/lib/widgets/SavingsRateWidget";
 import "@/lib/widgets/SnapshotWidget";
+import "@/lib/widgets/SpendingHabitsWidget";
 import "@/lib/widgets/SpendingHeatmapWidget";
 import "@/lib/widgets/TopCategoriesBarWidget";
 import "@/lib/widgets/YearOverYearWidget";

@@ -13,18 +13,23 @@ import {
   Plane,
   Pin,
   PinOff,
+  Shield,
   Tags,
   Target,
   Upload,
   Users,
+  X,
 } from "lucide-react";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 import { useTheme, type ThemeName } from "@/lib/theme";
 
 type NavItem = {
   to: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
+  badgeCount?: number;
 };
 
 const MAIN_ITEMS: NavItem[] = [
@@ -48,20 +53,29 @@ const CONFIG_ITEMS: NavItem[] = [
   { to: "/ml", label: "ML Status", icon: Brain },
 ];
 
+const ADMIN_ITEMS: NavItem[] = [{ to: "/admin", label: "Admin Console", icon: Shield }];
+
 const THEME_SWATCHES: Record<ThemeName, string[]> = {
   light: ["#4f46e5", "#0891b2", "#db2777"],
-  dark: ["#60a5fa", "#22d3ee", "#a78bfa"],
+  rose: ["#e11d48", "#db2777", "#f43f5e"],
   ocean: ["#0ea5a8", "#2563eb", "#06b6d4"],
   sunset: ["#ea580c", "#f59e0b", "#f43f5e"],
   forest: ["#2f855a", "#4d7c0f", "#84cc16"],
+  dark: ["#60a5fa", "#22d3ee", "#a78bfa"],
+  midnight: ["#818cf8", "#c084fc", "#e879f9"],
+  nord: ["#88c0d0", "#81a1c1", "#a3be8c"],
+  dracula: ["#bd93f9", "#ff79c6", "#50fa7b"],
+  ember: ["#f97316", "#f59e0b", "#fcd34d"],
 };
 
 function SidebarLink({
   item,
   expanded,
+  onNavigate,
 }: {
   item: NavItem;
   expanded: boolean;
+  onNavigate?: () => void;
 }) {
   const Icon = item.icon;
   return (
@@ -70,6 +84,7 @@ function SidebarLink({
       end={item.to === "/"}
       title={!expanded ? item.label : undefined}
       aria-label={item.label}
+      onClick={onNavigate}
       className={({ isActive }) =>
         cn(
           "flex items-center rounded-md border border-transparent text-sm font-medium transition-colors",
@@ -82,6 +97,17 @@ function SidebarLink({
     >
       <Icon className="h-4 w-4 shrink-0" />
       {expanded && <span className="truncate">{item.label}</span>}
+      {item.badgeCount && item.badgeCount > 0 ? (
+        <span
+          className={cn(
+            "ml-auto inline-flex items-center justify-center rounded-full bg-destructive text-destructive-foreground",
+            expanded ? "min-w-5 px-1.5 py-0.5 text-[10px]" : "h-2.5 w-2.5"
+          )}
+          title={`${item.badgeCount} security warning${item.badgeCount === 1 ? "" : "s"}`}
+        >
+          {expanded ? item.badgeCount : null}
+        </span>
+      ) : null}
     </NavLink>
   );
 }
@@ -91,11 +117,13 @@ function NavGroup({
   items,
   expanded,
   showDivider,
+  onNavigate,
 }: {
   title: string;
   items: NavItem[];
   expanded: boolean;
   showDivider?: boolean;
+  onNavigate?: () => void;
 }) {
   return (
     <div className={cn("space-y-1", showDivider && "pt-3")}>
@@ -112,14 +140,22 @@ function NavGroup({
         showDivider && <div className="mx-2 my-2 border-t border-border" />
       )}
       {items.map((item) => (
-        <SidebarLink key={item.to} item={item} expanded={expanded} />
+        <SidebarLink key={item.to} item={item} expanded={expanded} onNavigate={onNavigate} />
       ))}
     </div>
   );
 }
 
-export default function Sidebar() {
+export default function Sidebar({
+  mobileOpen = false,
+  onCloseMobile,
+}: {
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
+}) {
+  const { isAdmin } = useAuth();
   const { theme, setTheme, themes } = useTheme();
+  const [adminWarningCount, setAdminWarningCount] = useState(0);
   const [pinned, setPinned] = useState<boolean>(() => localStorage.getItem("sidebar_pinned") === "1");
   const [hovered, setHovered] = useState(false);
   const [themePanelOpen, setThemePanelOpen] = useState(false);
@@ -139,10 +175,57 @@ export default function Sidebar() {
 
   const expanded = useMemo(() => pinned || hovered, [pinned, hovered]);
 
+  useEffect(() => {
+    if (!isAdmin) {
+      setAdminWarningCount(0);
+      return;
+    }
+    let cancelled = false;
+    async function loadSecurityCount() {
+      try {
+        const events = await api.getAdminSecurityEvents(120);
+        if (cancelled) return;
+        const count = events.filter((event) => {
+          const severity = (event.severity || "").toLowerCase();
+          return severity === "warning" || severity === "critical";
+        }).length;
+        setAdminWarningCount(count);
+      } catch {
+        if (!cancelled) setAdminWarningCount(0);
+      }
+    }
+    void loadSecurityCount();
+    const timer = window.setInterval(() => {
+      void loadSecurityCount();
+    }, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isAdmin]);
+
+  const navContent = (expanded: boolean, onNavigate?: () => void) => (
+    <>
+      <NavGroup title="Main" items={MAIN_ITEMS} expanded={expanded} onNavigate={onNavigate} />
+      <NavGroup title="Accounts" items={ACCOUNT_ITEMS} expanded={expanded} showDivider onNavigate={onNavigate} />
+      <NavGroup title="Configuration" items={CONFIG_ITEMS} expanded={expanded} showDivider onNavigate={onNavigate} />
+      {isAdmin ? (
+        <NavGroup
+          title="Admin"
+          items={ADMIN_ITEMS.map((item) => ({ ...item, badgeCount: adminWarningCount }))}
+          expanded={expanded}
+          showDivider
+          onNavigate={onNavigate}
+        />
+      ) : null}
+    </>
+  );
+
   return (
+    <>
     <aside
       className={cn(
-        "h-screen sticky top-0 z-30 shrink-0 overflow-y-auto border-r border-border bg-card/90 backdrop-blur transition-all duration-200",
+        "hidden lg:block h-screen sticky top-0 z-30 shrink-0 overflow-y-auto border-r border-border bg-card/90 backdrop-blur transition-all duration-200",
         expanded ? "w-56" : "w-14"
       )}
       onMouseEnter={() => {
@@ -172,9 +255,7 @@ export default function Sidebar() {
           {expanded && <span className="ml-2 text-sm font-semibold text-foreground">Expense Tracker</span>}
         </div>
 
-        <NavGroup title="Main" items={MAIN_ITEMS} expanded={expanded} />
-        <NavGroup title="Accounts" items={ACCOUNT_ITEMS} expanded={expanded} showDivider />
-        <NavGroup title="Configuration" items={CONFIG_ITEMS} expanded={expanded} showDivider />
+        {navContent(expanded)}
 
         <div className="mt-auto space-y-2 pt-2">
           {expanded ? (
@@ -285,5 +366,73 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+    {mobileOpen ? (
+      <div className="fixed inset-0 z-40 lg:hidden">
+        <button
+          type="button"
+          className="absolute inset-0 bg-black/40"
+          aria-label="Close navigation menu"
+          onClick={onCloseMobile}
+        />
+        <aside className="absolute inset-y-0 left-0 w-72 overflow-y-auto border-r border-border bg-card p-2 shadow-xl">
+          <div className="mb-2 flex items-center justify-between rounded-md px-3 py-2">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-md bg-primary/15 text-primary text-xs font-semibold flex items-center justify-center">
+                ET
+              </div>
+              <span className="text-sm font-semibold text-foreground">Expense Tracker</span>
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background"
+              onClick={onCloseMobile}
+              aria-label="Close navigation menu"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {navContent(true, onCloseMobile)}
+          <div className="mt-3 rounded-md border border-border bg-background/80 p-2">
+            <div className="mb-2 flex items-center justify-between rounded-md px-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="flex items-center gap-2">
+                <Palette className="h-3.5 w-3.5" />
+                Theme
+              </span>
+              <span className="capitalize text-[11px] font-medium">{theme}</span>
+            </div>
+            <div className="space-y-1">
+              {themes.map((option) => (
+                <button
+                  key={`mobile-theme-${option.id}`}
+                  type="button"
+                  onClick={() => {
+                    setTheme(option.id);
+                    onCloseMobile?.();
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-xs",
+                    theme === option.id
+                      ? "border-primary bg-accent text-accent-foreground"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span>{option.label}</span>
+                  <span className="flex items-center gap-1">
+                    {THEME_SWATCHES[option.id].map((swatch) => (
+                      <span
+                        key={`mobile-${option.id}-${swatch}`}
+                        className="h-2.5 w-2.5 rounded-full border border-border/60"
+                        style={{ backgroundColor: swatch }}
+                      />
+                    ))}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
+      </div>
+    ) : null}
+    </>
   );
 }

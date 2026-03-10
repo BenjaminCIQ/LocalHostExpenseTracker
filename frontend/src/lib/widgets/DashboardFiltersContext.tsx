@@ -13,6 +13,7 @@ import {
   resetGlobalControls,
   saveGlobalControls,
 } from "@/lib/widgets/controlsStore";
+import { getSelectedPersonId } from "@/lib/personFilter";
 import type {
   DashboardFilters,
   DateWindowPreset,
@@ -29,6 +30,8 @@ interface DashboardFiltersState {
   setGlobalGranularity: (granularity: GlobalControlState["granularity"]) => void;
   setScope: (scope: GlobalControlState["scope"]) => void;
   setValueMode: (mode: GlobalControlState["valueMode"]) => void;
+  setExcludeTripIncluded: (enabled: boolean) => void;
+  setExcludedTripIds: (tripIds: number[]) => void;
   resetGlobal: () => void;
   setPersonId: (personId: number | null) => void;
   setAccountId: (accountId: number | null) => void;
@@ -37,13 +40,15 @@ interface DashboardFiltersState {
 
 const DashboardFiltersContext = createContext<DashboardFiltersState | null>(null);
 
-const defaultFilters: DashboardFilters = {
-  dateRange: { start: null, end: null },
-  month: null,
-  personId: null,
-  accountId: null,
-  categoryIds: [],
-};
+function getDefaultFilters(): DashboardFilters {
+  return {
+    dateRange: { start: null, end: null },
+    month: null,
+    personId: getSelectedPersonId(),
+    accountId: null,
+    categoryIds: [],
+  };
+}
 
 function toDateIso(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -78,7 +83,7 @@ export function DashboardFiltersProvider({
   pageId: PageId;
   children: ReactNode;
 }) {
-  const [filters, setFilters] = useState<DashboardFilters>(defaultFilters);
+  const [filters, setFilters] = useState<DashboardFilters>(() => getDefaultFilters());
   const [globalControls, setGlobalControls] = useState<GlobalControlState>(() =>
     loadGlobalControls(pageId)
   );
@@ -89,6 +94,22 @@ export function DashboardFiltersProvider({
     }, 200);
     return () => window.clearTimeout(id);
   }, [globalControls, pageId]);
+
+  useEffect(() => {
+    const syncFromTopbar = () => {
+      const selected = getSelectedPersonId();
+      setFilters((prev) => {
+        if (prev.personId === selected) return prev;
+        return { ...prev, personId: selected, accountId: null };
+      });
+    };
+    window.addEventListener("person-filter-changed", syncFromTopbar);
+    window.addEventListener("storage", syncFromTopbar);
+    return () => {
+      window.removeEventListener("person-filter-changed", syncFromTopbar);
+      window.removeEventListener("storage", syncFromTopbar);
+    };
+  }, []);
 
   const setMonth = useCallback((month: string | null) => {
     setFilters((prev) => ({ ...prev, month }));
@@ -131,6 +152,14 @@ export function DashboardFiltersProvider({
     setGlobalControls((prev) => ({ ...prev, valueMode: mode }));
   }, []);
 
+  const setExcludeTripIncluded = useCallback((enabled: boolean) => {
+    setGlobalControls((prev) => ({ ...prev, excludeTripIncluded: enabled }));
+  }, []);
+
+  const setExcludedTripIds = useCallback((tripIds: number[]) => {
+    setGlobalControls((prev) => ({ ...prev, excludedTripIds: tripIds }));
+  }, []);
+
   const resetGlobal = useCallback(() => {
     const defaults = getDefaultGlobalControls();
     setGlobalControls(defaults);
@@ -148,6 +177,8 @@ export function DashboardFiltersProvider({
       setGlobalGranularity,
       setScope,
       setValueMode,
+      setExcludeTripIncluded,
+      setExcludedTripIds,
       resetGlobal,
       setPersonId,
       setAccountId,
@@ -166,6 +197,8 @@ export function DashboardFiltersProvider({
       setPersonId,
       setScope,
       setValueMode,
+      setExcludeTripIncluded,
+      setExcludedTripIds,
     ]
   );
 

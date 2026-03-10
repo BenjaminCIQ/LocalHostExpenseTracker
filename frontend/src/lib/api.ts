@@ -3,6 +3,7 @@ const BASE = "/api";
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...options?.headers },
+    credentials: "include",
     ...options,
   });
   if (!res.ok) {
@@ -29,6 +30,50 @@ export interface Person {
   id: number;
   name: string;
   created_at: string;
+}
+
+export interface AuthPersonOption {
+  id: number;
+  name: string;
+  requires_password_setup: boolean;
+}
+
+export interface AuthMe {
+  authenticated: boolean;
+  person: { id: number; name: string; is_admin?: boolean } | null;
+  expires_at: string | null;
+}
+
+export interface AdminPerson {
+  id: number;
+  name: string;
+  is_admin: boolean;
+  has_password: boolean;
+  lockout_until: string | null;
+}
+
+export interface AdminSecurityEvent {
+  id: number;
+  person_id: number | null;
+  person_name: string | null;
+  event_type: string;
+  severity: "info" | "warning" | "critical" | string;
+  message: string;
+  ip_address: string;
+  user_agent: string;
+  created_at: string;
+}
+
+export interface AdminSession {
+  id: number;
+  person_id: number;
+  person_name: string;
+  ip_address: string;
+  user_agent: string;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  revoked_at: string | null;
 }
 
 export interface Category {
@@ -68,6 +113,10 @@ export interface Transaction {
   transfer_confidence: number | null;
   transfer_match_source: "auto" | "manual" | null;
   is_internal_transfer: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
+  deleted_by_person_id?: number | null;
+  delete_reason?: string | null;
   created_at: string;
 }
 
@@ -195,6 +244,10 @@ export interface TransactionBounds {
   max_date: string | null;
   min_amount: number | null;
   max_amount: number | null;
+  income_min: number | null;
+  income_max: number | null;
+  expense_min_abs: number | null;
+  expense_max_abs: number | null;
 }
 
 export interface ImportResult {
@@ -245,6 +298,62 @@ export interface AnalyticsTimeseriesPoint {
   categories: AnalyticsCategoryAmount[];
 }
 
+
+export interface SpendingHabitsSummary {
+  total_spend: number;
+  transaction_count: number;
+  avg_amount: number;
+  median_amount: number;
+  min_amount: number;
+  max_amount: number;
+  stddev_amount: number;
+  avg_transactions_per_month: number;
+  first_transaction_date: string | null;
+  last_transaction_date: string | null;
+}
+
+export interface SpendingHabitsTrendPoint {
+  period: string;
+  total: number;
+  mom_change_pct: number | null;
+  rolling_avg_3m: number | null;
+}
+
+export interface SpendingHabitsDayBucket {
+  day: string;
+  count: number;
+  total: number;
+  avg_amount: number;
+}
+
+export interface SpendingHabitsAmountBucket {
+  range_label: string;
+  min: number;
+  max: number;
+  count: number;
+  total: number;
+}
+
+export interface SpendingHabitsMerchant {
+  merchant: string;
+  count: number;
+  total_spend: number;
+  avg_amount: number;
+}
+
+export interface SpendingHabitsResponse {
+  summary: SpendingHabitsSummary;
+  monthly_trend: SpendingHabitsTrendPoint[];
+  day_of_week: SpendingHabitsDayBucket[];
+  amount_distribution: SpendingHabitsAmountBucket[];
+  top_merchants: SpendingHabitsMerchant[];
+  trend_direction: "increasing" | "decreasing" | "consistent";
+  trend_slope: number;
+  proportion_of_total: number;
+  category_rank: number | null;
+  category_rank_total: number | null;
+  projected_annual_spend: number | null;
+}
 export interface SankeyNode {
   id: string;
   label: string;
@@ -458,9 +567,30 @@ export interface TransferCandidate {
   candidate_currency: string;
   score: number;
   reason: string;
+  reasons: string[];
+  transaction_description: string;
+  candidate_description: string;
+  transaction_raw_description: string;
+  candidate_raw_description: string;
+  transaction_merchant: string;
+  candidate_merchant: string;
+  transaction_kind: string;
+  candidate_kind: string;
+  transaction_is_internal_transfer: boolean;
+  candidate_is_internal_transfer: boolean;
+  transaction_transfer_group_id: string | null;
+  candidate_transfer_group_id: string | null;
 }
 
 export const api = {
+  getAuthOptions: () => request<{ persons: AuthPersonOption[] }>("/auth/options"),
+  bootstrapAuth: (payload: { person_id: number; password: string; remember_me?: boolean }) =>
+    request<AuthMe>("/auth/bootstrap", { method: "POST", body: JSON.stringify(payload) }),
+  login: (payload: { person_id: number; password: string; remember_me?: boolean }) =>
+    request<AuthMe>("/auth/login", { method: "POST", body: JSON.stringify(payload) }),
+  logout: () => request<AuthMe>("/auth/logout", { method: "POST" }),
+  getAuthMe: () => request<AuthMe>("/auth/me"),
+
   getAccounts: () => request<Account[]>("/accounts/"),
   createAccount: (data: Partial<Account>) =>
     request<Account>("/accounts/", {
@@ -491,6 +621,7 @@ export const api = {
   getTransactions: (params: {
     page?: number;
     page_size?: number;
+    transaction_id?: number;
     account_id?: number;
     person_id?: number;
     classified?: boolean;
@@ -503,6 +634,10 @@ export const api = {
     trip_id?: number;
     min_amount?: number;
     max_amount?: number;
+    income_min?: number;
+    income_max?: number;
+    expense_min_abs?: number;
+    expense_max_abs?: number;
     transaction_kind?: "income" | "expense" | "transfer" | "adjustment";
     include_transfers?: boolean;
     sort_by?: "date" | "amount" | "merchant" | "description" | "category";
@@ -512,6 +647,8 @@ export const api = {
     if (params.page) searchParams.set("page", String(params.page));
     if (params.page_size)
       searchParams.set("page_size", String(params.page_size));
+    if (params.transaction_id !== undefined)
+      searchParams.set("transaction_id", String(params.transaction_id));
     if (params.account_id)
       searchParams.set("account_id", String(params.account_id));
     if (params.person_id)
@@ -527,6 +664,10 @@ export const api = {
     if (params.trip_id) searchParams.set("trip_id", String(params.trip_id));
     if (params.min_amount !== undefined) searchParams.set("min_amount", String(params.min_amount));
     if (params.max_amount !== undefined) searchParams.set("max_amount", String(params.max_amount));
+    if (params.income_min !== undefined) searchParams.set("income_min", String(params.income_min));
+    if (params.income_max !== undefined) searchParams.set("income_max", String(params.income_max));
+    if (params.expense_min_abs !== undefined) searchParams.set("expense_min_abs", String(params.expense_min_abs));
+    if (params.expense_max_abs !== undefined) searchParams.set("expense_max_abs", String(params.expense_max_abs));
     if (params.transaction_kind) searchParams.set("transaction_kind", params.transaction_kind);
     if (params.include_transfers !== undefined) searchParams.set("include_transfers", String(params.include_transfers));
     if (params.sort_by) searchParams.set("sort_by", params.sort_by);
@@ -583,17 +724,33 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
-  getTransferCandidates: (params?: { limit?: number; account_id?: number; person_id?: number }) => {
+  getTransferCandidates: (params?: {
+    limit?: number;
+    seed_limit?: number;
+    max_results?: number;
+    min_confidence?: number;
+    amount_tolerance?: number;
+    date_window_days?: number;
+    account_id?: number;
+    person_id?: number;
+  }) => {
     const qs = new URLSearchParams();
     if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.seed_limit) qs.set("seed_limit", String(params.seed_limit));
+    if (params?.max_results) qs.set("max_results", String(params.max_results));
+    if (params?.min_confidence !== undefined) qs.set("min_confidence", String(params.min_confidence));
+    if (params?.amount_tolerance !== undefined) qs.set("amount_tolerance", String(params.amount_tolerance));
+    if (params?.date_window_days !== undefined) qs.set("date_window_days", String(params.date_window_days));
     if (params?.account_id) qs.set("account_id", String(params.account_id));
     if (params?.person_id) qs.set("person_id", String(params.person_id));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<TransferCandidate[]>(`/transactions/transfer-candidates${suffix}`);
   },
-  autoLinkTransfers: (limit = 200) =>
+  autoLinkTransfers: (limit = 200, minAutoConfidence?: number) =>
     request<{ linked: number; reviewed: number; skipped: number }>(
-      `/transactions/transfers/auto-link?limit=${limit}`,
+      `/transactions/transfers/auto-link?limit=${limit}${
+        minAutoConfidence !== undefined ? `&min_auto_confidence=${encodeURIComponent(String(minAutoConfidence))}` : ""
+      }`,
       { method: "POST" }
     ),
   linkTransferPair: (transaction_id: number, candidate_id: number, confidence?: number) =>
@@ -736,6 +893,9 @@ export const api = {
     accountId?: number;
     personId?: number;
     categoryIds?: number[];
+    merchantNames?: string[];
+    excludeTripIncluded?: boolean;
+    excludedTripIds?: number[];
     granularity?: "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
     includeTransfers?: boolean;
     tripId?: number;
@@ -746,18 +906,24 @@ export const api = {
     if (params?.accountId) qs.set("account_id", String(params.accountId));
     if (params?.personId) qs.set("person_id", String(params.personId));
     if (params?.categoryIds?.length) qs.set("category_ids", params.categoryIds.join(","));
+    if (params?.merchantNames?.length) qs.set("merchant_names", params.merchantNames.join(","));
+    if (params?.excludeTripIncluded !== undefined) qs.set("exclude_trip_included", String(params.excludeTripIncluded));
+    if (params?.excludedTripIds?.length) qs.set("excluded_trip_ids", params.excludedTripIds.join(","));
     if (params?.granularity) qs.set("granularity", params.granularity);
     if (params?.includeTransfers !== undefined) qs.set("include_transfers", String(params.includeTransfers));
     if (params?.tripId) qs.set("trip_id", String(params.tripId));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<{ points: AnalyticsTimeseriesPoint[] }>(`/analytics/timeseries${suffix}`);
   },
-  getCategoryBreakdown: (params?: {
+  getSpendingHabits: (params?: {
     startDate?: string;
     endDate?: string;
     accountId?: number;
     personId?: number;
     categoryIds?: number[];
+    merchantNames?: string[];
+    excludeTripIncluded?: boolean;
+    excludedTripIds?: number[];
     includeTransfers?: boolean;
     tripId?: number;
   }) => {
@@ -767,6 +933,35 @@ export const api = {
     if (params?.accountId) qs.set("account_id", String(params.accountId));
     if (params?.personId) qs.set("person_id", String(params.personId));
     if (params?.categoryIds?.length) qs.set("category_ids", params.categoryIds.join(","));
+    if (params?.merchantNames?.length) qs.set("merchant_names", params.merchantNames.join(","));
+    if (params?.excludeTripIncluded !== undefined) qs.set("exclude_trip_included", String(params.excludeTripIncluded));
+    if (params?.excludedTripIds?.length) qs.set("excluded_trip_ids", params.excludedTripIds.join(","));
+    if (params?.includeTransfers !== undefined) qs.set("include_transfers", String(params.includeTransfers));
+    if (params?.tripId) qs.set("trip_id", String(params.tripId));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<SpendingHabitsResponse>(`/analytics/spending-habits${suffix}`);
+  },
+  getCategoryBreakdown: (params?: {
+    startDate?: string;
+    endDate?: string;
+    accountId?: number;
+    personId?: number;
+    categoryIds?: number[];
+    merchantNames?: string[];
+    excludeTripIncluded?: boolean;
+    excludedTripIds?: number[];
+    includeTransfers?: boolean;
+    tripId?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.startDate) qs.set("start_date", params.startDate);
+    if (params?.endDate) qs.set("end_date", params.endDate);
+    if (params?.accountId) qs.set("account_id", String(params.accountId));
+    if (params?.personId) qs.set("person_id", String(params.personId));
+    if (params?.categoryIds?.length) qs.set("category_ids", params.categoryIds.join(","));
+    if (params?.merchantNames?.length) qs.set("merchant_names", params.merchantNames.join(","));
+    if (params?.excludeTripIncluded !== undefined) qs.set("exclude_trip_included", String(params.excludeTripIncluded));
+    if (params?.excludedTripIds?.length) qs.set("excluded_trip_ids", params.excludedTripIds.join(","));
     if (params?.includeTransfers !== undefined) qs.set("include_transfers", String(params.includeTransfers));
     if (params?.tripId) qs.set("trip_id", String(params.tripId));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
@@ -778,6 +973,9 @@ export const api = {
     accountId?: number;
     personId?: number;
     categoryIds?: number[];
+    merchantNames?: string[];
+    excludeTripIncluded?: boolean;
+    excludedTripIds?: number[];
     includeTransfers?: boolean;
     tripId?: number;
   }) => {
@@ -787,6 +985,9 @@ export const api = {
     if (params?.accountId) qs.set("account_id", String(params.accountId));
     if (params?.personId) qs.set("person_id", String(params.personId));
     if (params?.categoryIds?.length) qs.set("category_ids", params.categoryIds.join(","));
+    if (params?.merchantNames?.length) qs.set("merchant_names", params.merchantNames.join(","));
+    if (params?.excludeTripIncluded !== undefined) qs.set("exclude_trip_included", String(params.excludeTripIncluded));
+    if (params?.excludedTripIds?.length) qs.set("excluded_trip_ids", params.excludedTripIds.join(","));
     if (params?.includeTransfers !== undefined) qs.set("include_transfers", String(params.includeTransfers));
     if (params?.tripId) qs.set("trip_id", String(params.tripId));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
@@ -798,6 +999,9 @@ export const api = {
     accountId?: number;
     personId?: number;
     categoryIds?: number[];
+    merchantNames?: string[];
+    excludeTripIncluded?: boolean;
+    excludedTripIds?: number[];
     limit?: number;
     includeTransfers?: boolean;
     tripId?: number;
@@ -808,6 +1012,9 @@ export const api = {
     if (params?.accountId) qs.set("account_id", String(params.accountId));
     if (params?.personId) qs.set("person_id", String(params.personId));
     if (params?.categoryIds?.length) qs.set("category_ids", params.categoryIds.join(","));
+    if (params?.merchantNames?.length) qs.set("merchant_names", params.merchantNames.join(","));
+    if (params?.excludeTripIncluded !== undefined) qs.set("exclude_trip_included", String(params.excludeTripIncluded));
+    if (params?.excludedTripIds?.length) qs.set("excluded_trip_ids", params.excludedTripIds.join(","));
     if (params?.limit) qs.set("limit", String(params.limit));
     if (params?.includeTransfers !== undefined) qs.set("include_transfers", String(params.includeTransfers));
     if (params?.tripId) qs.set("trip_id", String(params.tripId));
@@ -820,6 +1027,9 @@ export const api = {
     accountId?: number;
     personId?: number;
     categoryIds?: number[];
+    merchantNames?: string[];
+    excludeTripIncluded?: boolean;
+    excludedTripIds?: number[];
     limit?: number;
     includeTransfers?: boolean;
     tripId?: number;
@@ -830,6 +1040,9 @@ export const api = {
     if (params?.accountId) qs.set("account_id", String(params.accountId));
     if (params?.personId) qs.set("person_id", String(params.personId));
     if (params?.categoryIds?.length) qs.set("category_ids", params.categoryIds.join(","));
+    if (params?.merchantNames?.length) qs.set("merchant_names", params.merchantNames.join(","));
+    if (params?.excludeTripIncluded !== undefined) qs.set("exclude_trip_included", String(params.excludeTripIncluded));
+    if (params?.excludedTripIds?.length) qs.set("excluded_trip_ids", params.excludedTripIds.join(","));
     if (params?.limit) qs.set("limit", String(params.limit));
     if (params?.includeTransfers !== undefined) qs.set("include_transfers", String(params.includeTransfers));
     if (params?.tripId) qs.set("trip_id", String(params.tripId));
@@ -1006,4 +1219,30 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ only_unapplied: onlyUnapplied }),
     }),
+  getAdminPersons: () => request<AdminPerson[]>("/admin/persons"),
+  setAdminForPerson: (personId: number, isAdmin: boolean) =>
+    request<AdminPerson>(`/admin/persons/${personId}/admin`, {
+      method: "PATCH",
+      body: JSON.stringify({ is_admin: isAdmin }),
+    }),
+  getAdminSecurityEvents: (limit = 100) =>
+    request<AdminSecurityEvent[]>(`/admin/security-events?limit=${limit}`),
+  getAdminSessions: (includeRevoked = false) =>
+    request<AdminSession[]>(`/admin/sessions?include_revoked=${String(includeRevoked)}`),
+  revokeAdminSession: (sessionId: number) =>
+    request<{ revoked: boolean }>(`/admin/sessions/${sessionId}/revoke`, { method: "POST" }),
+  softDeleteTransaction: (transactionId: number, reason: string) =>
+    request<{ deleted: boolean }>(`/admin/transactions/${transactionId}/soft-delete`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  restoreTransaction: (transactionId: number) =>
+    request<{ restored: boolean }>(`/admin/transactions/${transactionId}/restore`, {
+      method: "POST",
+    }),
+  getDeletedTransactions: (limit = 200) =>
+    request<Transaction[]>(`/admin/transactions/deleted?limit=${limit}`),
 };
+
+
+

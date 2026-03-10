@@ -1,13 +1,15 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.config import settings
 from app.database import Base, SessionLocal, engine
+from app.deps import require_authenticated_user
 from app.events.bus import event_bus
 from app.events.consumers.merchant_memory_updater import (
     handle_transaction_classified as merchant_handler,
@@ -19,8 +21,10 @@ from app.events.consumers.soft_suggestion_updater import (
     handle_transaction_classified as soft_similarity_handler,
 )
 from app.routers import (
+    admin,
     analytics,
     accounts,
+    auth,
     budgets,
     categories,
     dashboard,
@@ -40,6 +44,10 @@ from app.seed import seed_categories, seed_default_account
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _parse_origins(raw_origins: str) -> list[str]:
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
 
 def _ensure_transactions_raw_columns():
@@ -66,6 +74,14 @@ def _ensure_transactions_raw_columns():
             conn.execute(text("ALTER TABLE transactions ADD COLUMN transfer_match_source VARCHAR(20)"))
         if "is_internal_transfer" not in existing:
             conn.execute(text("ALTER TABLE transactions ADD COLUMN is_internal_transfer BOOLEAN DEFAULT 0"))
+        if "is_deleted" not in existing:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
+        if "deleted_at" not in existing:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN deleted_at DATETIME"))
+        if "deleted_by_person_id" not in existing:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN deleted_by_person_id INTEGER"))
+        if "delete_reason" not in existing:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN delete_reason TEXT"))
         conn.execute(
             text(
                 "UPDATE transactions "
@@ -88,6 +104,14 @@ def _ensure_accounts_person_column():
             conn.execute(text("ALTER TABLE accounts ADD COLUMN starting_balance FLOAT DEFAULT 0.0"))
         if "account_group" not in existing:
             conn.execute(text("ALTER TABLE accounts ADD COLUMN account_group VARCHAR(30) DEFAULT 'cash'"))
+
+
+def _ensure_people_admin_column():
+    with engine.begin() as conn:
+        cols = conn.execute(text("PRAGMA table_info(persons)")).fetchall()
+        existing = {r[1] for r in cols}
+        if "is_admin" not in existing:
+            conn.execute(text("ALTER TABLE persons ADD COLUMN is_admin BOOLEAN DEFAULT 0"))
 
 
 def _ensure_external_tracking_tables():
@@ -142,6 +166,64 @@ def _ensure_external_tracking_tables():
         )
 
 
+def _ensure_auth_tables():
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS person_credentials ("
+                "id INTEGER PRIMARY KEY, "
+                "person_id INTEGER NOT NULL UNIQUE, "
+                "password_hash TEXT NOT NULL, "
+                "password_salt TEXT NOT NULL, "
+                "password_iterations INTEGER NOT NULL, "
+                "failed_login_attempts INTEGER DEFAULT 0, "
+                "last_failed_login_at DATETIME NULL, "
+                "lockout_until DATETIME NULL, "
+                "created_at DATETIME, "
+                "updated_at DATETIME"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS auth_sessions ("
+                "id INTEGER PRIMARY KEY, "
+                "person_id INTEGER NOT NULL, "
+                "token_hash VARCHAR(64) NOT NULL UNIQUE, "
+                "user_agent TEXT DEFAULT '', "
+                "ip_address VARCHAR(64) DEFAULT '', "
+                "expires_at DATETIME NOT NULL, "
+                "created_at DATETIME, "
+                "last_seen_at DATETIME, "
+                "revoked_at DATETIME NULL"
+                ")"
+            )
+        )
+        cred_cols = conn.execute(text("PRAGMA table_info(person_credentials)")).fetchall()
+        cred_existing = {r[1] for r in cred_cols}
+        if "failed_login_attempts" not in cred_existing:
+            conn.execute(text("ALTER TABLE person_credentials ADD COLUMN failed_login_attempts INTEGER DEFAULT 0"))
+        if "last_failed_login_at" not in cred_existing:
+            conn.execute(text("ALTER TABLE person_credentials ADD COLUMN last_failed_login_at DATETIME NULL"))
+        if "lockout_until" not in cred_existing:
+            conn.execute(text("ALTER TABLE person_credentials ADD COLUMN lockout_until DATETIME NULL"))
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS security_events ("
+                "id INTEGER PRIMARY KEY, "
+                "person_id INTEGER NULL, "
+                "event_type VARCHAR(50) NOT NULL, "
+                "severity VARCHAR(20) DEFAULT 'info', "
+                "message TEXT DEFAULT '', "
+                "ip_address VARCHAR(64) DEFAULT '', "
+                "user_agent TEXT DEFAULT '', "
+                "metadata_json TEXT NULL, "
+                "created_at DATETIME"
+                ")"
+            )
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     for d in [settings.data_dir, settings.ml_model_dir, settings.upload_dir]:
@@ -151,12 +233,18 @@ async def lifespan(_app: FastAPI):
 
     _ensure_transactions_raw_columns()
     _ensure_accounts_person_column()
+    _ensure_people_admin_column()
     _ensure_external_tracking_tables()
+    _ensure_auth_tables()
 
     db = SessionLocal()
     try:
         seed_categories(db)
         seed_default_account(db)
+        ben = db.execute(text("SELECT id FROM persons WHERE lower(name)='ben' LIMIT 1")).fetchone()
+        if ben:
+            db.execute(text("UPDATE persons SET is_admin=1 WHERE id=:id"), {"id": ben[0]})
+            db.commit()
     finally:
         db.close()
 
@@ -176,30 +264,44 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_parse_origins(settings.cors_allowed_origins),
+    allow_origin_regex=settings.cors_allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(accounts.router)
-app.include_router(categories.router)
-app.include_router(import_profiles.router)
-app.include_router(parsing_rules.router)
-app.include_router(persons.router)
-app.include_router(upload.router)
-app.include_router(transactions.router)
-app.include_router(external_accounts.router)
-app.include_router(dashboard.router)
-app.include_router(analytics.router)
-app.include_router(budgets.router)
-app.include_router(ml.router)
-app.include_router(overrides.router)
-app.include_router(rules.router)
-app.include_router(suggestions.router)
-app.include_router(trips.router)
+app.include_router(auth.router)
+app.include_router(admin.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(accounts.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(categories.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(import_profiles.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(parsing_rules.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(persons.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(upload.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(transactions.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(external_accounts.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(dashboard.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(analytics.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(budgets.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(ml.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(overrides.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(rules.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(suggestions.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(trips.router, dependencies=[Depends(require_authenticated_user)])
 
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "app.main:app",
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "8000")),
+        reload=os.getenv("UVICORN_RELOAD", "true").lower() == "true",
+    )

@@ -14,13 +14,13 @@ interface RecurringItem {
   transaction_ids: number[];
 }
 
-function RecurringWidget({ filters }: WidgetProps) {
+function RecurringWidget({ filters, globalControls }: WidgetProps) {
   const [rows, setRows] = useState<RecurringItem[]>([]);
   useEffect(() => {
-    api.getRecurring({ ...toAnalyticsParams(filters), minOccurrences: 3 })
+    api.getRecurring({ ...toAnalyticsParams(filters, globalControls), minOccurrences: 3 })
       .then((res) => setRows(res.items))
       .catch(() => setRows([]));
-  }, [filters]);
+  }, [filters, globalControls]);
 
   if (!rows.length) return <div className="text-sm text-muted-foreground">No recurring patterns detected.</div>;
   return (

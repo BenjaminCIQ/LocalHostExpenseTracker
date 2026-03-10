@@ -34,6 +34,8 @@ export interface GlobalControlState {
   granularity: GlobalGranularity;
   scope: ScopeMode;
   valueMode: ValueMode;
+  excludeTripIncluded: boolean;
+  excludedTripIds: number[];
 }
 
 export type WidgetControlState = Record<string, unknown>;
@@ -60,4 +62,8 @@ export interface LayoutEntry {
   widgetId: string;
   size: WidgetSize;
   order: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }

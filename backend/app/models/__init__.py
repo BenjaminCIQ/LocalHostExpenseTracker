@@ -1,4 +1,5 @@
 from app.models.account import Account
+from app.models.auth import AuthSession, PersonCredential, SecurityEvent
 from app.models.budget import Budget
 from app.models.canonical_name_example import CanonicalNameExample
 from app.models.category import Category
@@ -22,6 +23,8 @@ from app.models.user_override import UserOverride
 __all__ = [
     "Account",
     "Budget",
+    "AuthSession",
+    "SecurityEvent",
     "CanonicalNameExample",
     "Category",
     "ClassificationLog",
@@ -34,6 +37,7 @@ __all__ = [
     "MerchantCategoryStats",
     "ParsingRule",
     "Person",
+    "PersonCredential",
     "Rule",
     "RuleCondition",
     "TrainingData",

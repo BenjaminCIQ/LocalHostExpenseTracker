@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -16,6 +16,7 @@ import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
 import type { WidgetProps } from "@/lib/widgets/types";
+import { applyZoomWindow, clearWidgetZoom, readWidgetZoom } from "@/lib/widgets/zoomState";
 
 function CategoryTrendWidget({
   filters,
@@ -24,6 +25,7 @@ function CategoryTrendWidget({
   setWidgetState,
 }: WidgetProps) {
   const { chartColors } = useTheme();
+  const zoom = readWidgetZoom(widgetState);
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   const [showControls, setShowControls] = useState<boolean>(
     Boolean(widgetState?.showControls ?? false)
@@ -58,13 +60,13 @@ function CategoryTrendWidget({
   useEffect(() => {
     api
       .getAnalyticsTimeseries({
-        ...toAnalyticsParams(filters),
+        ...toAnalyticsParams(filters, globalControls),
         granularity,
         includeTransfers,
       })
       .then((res) => setRows(res.points))
       .catch(() => setRows([]));
-  }, [filters, granularity, includeTransfers]);
+  }, [filters, globalControls, granularity, includeTransfers]);
 
   useEffect(() => {
     setWidgetState?.({
@@ -86,6 +88,11 @@ function CategoryTrendWidget({
     showIncome,
     showNet,
   ]);
+
+  const chartRows = useMemo(
+    () => applyZoomWindow(rows, zoom, (row) => row.period),
+    [rows, zoom]
+  );
 
   if (!rows.length) return <div className="text-sm text-muted-foreground">No trend data yet.</div>;
   return (
@@ -144,10 +151,16 @@ function CategoryTrendWidget({
             include transfers
           </label>
         </div>
+        <button
+          className="rounded-md border border-border px-2 py-1 text-xs"
+          onClick={() => setWidgetState?.(clearWidgetZoom(widgetState))}
+        >
+          Reset zoom
+        </button>
       </ControlsSection>
       <div className="h-72">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows}>
+          <LineChart data={chartRows}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="period" />
             <YAxis />

@@ -27,7 +27,7 @@ def get_dashboard(
     month: str | None = Query(None, description="Optional YYYY-MM filter"),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Transaction)
+    query = db.query(Transaction).filter(Transaction.is_deleted.is_(False))
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)
     if person_id is not None:
@@ -122,7 +122,7 @@ def get_monthly_breakdown(
             y -= 1
     starts = list(reversed(starts))
 
-    tx_query = db.query(Transaction)
+    tx_query = db.query(Transaction).filter(Transaction.is_deleted.is_(False))
     if account_id is not None:
         tx_query = tx_query.filter(Transaction.account_id == account_id)
     if person_id is not None:

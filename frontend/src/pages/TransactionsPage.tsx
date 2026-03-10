@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
+import DoubleRangeSlider from "@/components/ui/DoubleRangeSlider";
 import CategorySelect from "@/components/category/CategorySelect";
 import CategoryMultiDropdown from "@/components/category/CategoryMultiDropdown";
 import { Tabs } from "@/components/ui/tabs";
@@ -28,9 +29,31 @@ import {
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useSelectedPersonId } from "@/lib/personFilter";
+import { useAuth } from "@/lib/auth";
 import TransferReviewPage from "@/pages/TransferReviewPage";
 
 type FilterMode = "all" | "unclassified" | "classified";
+
+function toIsoDate(input: Date): string {
+  return input.toISOString().slice(0, 10);
+}
+
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return toIsoDate(d);
+}
+
+function scrollToFocusedTransaction(txnId: number): void {
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLElement>(`[data-focus-txn-id="${txnId}"]`)
+  );
+  const visibleTarget = candidates.find(
+    (el) => el.getClientRects().length > 0 && window.getComputedStyle(el).display !== "none"
+  );
+  if (!visibleTarget) return;
+  visibleTarget.scrollIntoView({ behavior: "smooth", block: "center" });
+}
 
 function ConfidenceBadge({ confidence }: { confidence: number | null }) {
   if (confidence === null) return null;
@@ -194,13 +217,18 @@ function ClassifyCell({
 }
 
 export default function TransactionsPage() {
+  const { isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedPersonId = useSelectedPersonId();
+  const focusTxnIdParam = searchParams.get("focus_txn_id");
+  const focusTxnId = focusTxnIdParam ? Number(focusTxnIdParam) : Number.NaN;
   const activeTab = searchParams.get("tab") === "transfers" ? "transfers" : "transactions";
   const [data, setData] = useState<TransactionListResponse | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [focusAnchorDate, setFocusAnchorDate] = useState<string | null>(null);
+  const [focusPreparedForId, setFocusPreparedForId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<FilterMode>("all");
   const [sortBy, setSortBy] = useState<"date" | "amount" | "merchant" | "description" | "category">("date");
@@ -211,6 +239,10 @@ export default function TransactionsPage() {
     max_date: string | null;
     min_amount: number | null;
     max_amount: number | null;
+    income_min: number | null;
+    income_max: number | null;
+    expense_min_abs: number | null;
+    expense_max_abs: number | null;
   } | null>(null);
 
   const [searchText, setSearchText] = useState("");
@@ -226,8 +258,17 @@ export default function TransactionsPage() {
   const [tripFilterId, setTripFilterId] = useState<number | "">("");
   const [minAmount, setMinAmount] = useState<number | null>(null);
   const [maxAmount, setMaxAmount] = useState<number | null>(null);
+  const [amountFilterMode, setAmountFilterMode] = useState<"any" | "expense_only" | "income_only" | "both_separate">("any");
+  const [incomeMin, setIncomeMin] = useState<number | null>(null);
+  const [incomeMax, setIncomeMax] = useState<number | null>(null);
+  const [expenseMinAbs, setExpenseMinAbs] = useState<number | null>(null);
+  const [expenseMaxAbs, setExpenseMaxAbs] = useState<number | null>(null);
   const hasAmountBounds =
     bounds !== null && bounds.min_amount !== null && bounds.max_amount !== null;
+  const hasIncomeBounds =
+    bounds !== null && bounds.income_min !== null && bounds.income_max !== null;
+  const hasExpenseBounds =
+    bounds !== null && bounds.expense_min_abs !== null && bounds.expense_max_abs !== null;
 
   const [filtersOpen, setFiltersOpen] = useState<boolean>(() => {
     try {
@@ -370,6 +411,10 @@ export default function TransactionsPage() {
       end_date?: string;
       min_amount?: number;
       max_amount?: number;
+      income_min?: number;
+      income_max?: number;
+      expense_min_abs?: number;
+      expense_max_abs?: number;
       transaction_kind?: "income" | "expense" | "transfer" | "adjustment";
       trip_id?: number;
       include_transfers?: boolean;
@@ -389,8 +434,21 @@ export default function TransactionsPage() {
     if (startDate) params.start_date = startDate;
     if (endDate) params.end_date = endDate;
     if (tripFilterId) params.trip_id = Number(tripFilterId);
-    if (minAmount !== null) params.min_amount = minAmount;
-    if (maxAmount !== null) params.max_amount = maxAmount;
+    if (amountFilterMode === "any") {
+      if (minAmount !== null) params.min_amount = minAmount;
+      if (maxAmount !== null) params.max_amount = maxAmount;
+    } else if (amountFilterMode === "income_only") {
+      if (incomeMin !== null) params.min_amount = incomeMin;
+      if (incomeMax !== null) params.max_amount = incomeMax;
+    } else if (amountFilterMode === "expense_only") {
+      if (expenseMaxAbs !== null) params.min_amount = -expenseMaxAbs;
+      if (expenseMinAbs !== null) params.max_amount = -expenseMinAbs;
+    } else if (amountFilterMode === "both_separate") {
+      if (incomeMin !== null) params.income_min = incomeMin;
+      if (incomeMax !== null) params.income_max = incomeMax;
+      if (expenseMinAbs !== null) params.expense_min_abs = expenseMinAbs;
+      if (expenseMaxAbs !== null) params.expense_max_abs = expenseMaxAbs;
+    }
     if (transactionKindFilter) params.transaction_kind = transactionKindFilter;
     params.include_transfers = includeTransfers;
     params.sort_by = sortBy;
@@ -408,10 +466,16 @@ export default function TransactionsPage() {
     minAmount,
     maxAmount,
     transactionKindFilter,
+    amountFilterMode,
+    incomeMin,
+    incomeMax,
+    expenseMinAbs,
+    expenseMaxAbs,
     includeTransfers,
     sortBy,
     sortDir,
     selectedPersonId,
+    focusTxnId,
   ]);
 
   const linkByDrop = useCallback(
@@ -443,6 +507,62 @@ export default function TransactionsPage() {
   }, [load]);
 
   useEffect(() => {
+    if (!Number.isFinite(focusTxnId)) {
+      setFocusPreparedForId(null);
+      setFocusAnchorDate(null);
+      return;
+    }
+    if (focusPreparedForId === focusTxnId) return;
+    let cancelled = false;
+    api
+      .getTransactions({ page: 1, page_size: 1, transaction_id: focusTxnId })
+      .then((res) => {
+        if (cancelled) return;
+        const txn = res.items?.[0];
+        if (!txn) {
+          setFocusPreparedForId(focusTxnId);
+          return;
+        }
+        setFocusAnchorDate(txn.date);
+        // Build a contextual view around the focused transaction.
+        setFilter("all");
+        setSearchText("");
+        setMerchantText("");
+        setCategoryFilterIds([]);
+        setCategoryFilterSearch("");
+        setTransactionKindFilter("");
+        setTripFilterId("");
+        setIncludeTransfers(true);
+        setAmountFilterMode("any");
+        setMinAmount(null);
+        setMaxAmount(null);
+        setIncomeMin(null);
+        setIncomeMax(null);
+        setExpenseMinAbs(null);
+        setExpenseMaxAbs(null);
+        setStartDate(addDays(txn.date, -30));
+        setEndDate(addDays(txn.date, 30));
+        setPage(1);
+        setFocusPreparedForId(focusTxnId);
+      })
+      .catch(() => {
+        if (!cancelled) setFocusPreparedForId(focusTxnId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [focusPreparedForId, focusTxnId]);
+
+  useEffect(() => {
+    if (!Number.isFinite(focusTxnId) || !data?.items?.length) return;
+    const target = data.items.find((item) => item.id === focusTxnId);
+    if (!target) return;
+    setTimeout(() => {
+      scrollToFocusedTransaction(focusTxnId);
+    }, 60);
+  }, [data, focusTxnId]);
+
+  useEffect(() => {
     api.getCategories().then(setCategories);
   }, []);
 
@@ -469,6 +589,10 @@ export default function TransactionsPage() {
         if (!endDate && b.max_date) setEndDate(b.max_date);
         if (minAmount === null && b.min_amount !== null) setMinAmount(b.min_amount);
         if (maxAmount === null && b.max_amount !== null) setMaxAmount(b.max_amount);
+        if (incomeMin === null && b.income_min !== null) setIncomeMin(b.income_min);
+        if (incomeMax === null && b.income_max !== null) setIncomeMax(b.income_max);
+        if (expenseMinAbs === null && b.expense_min_abs !== null) setExpenseMinAbs(b.expense_min_abs);
+        if (expenseMaxAbs === null && b.expense_max_abs !== null) setExpenseMaxAbs(b.expense_max_abs);
       })
       .catch(() => setBounds(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -607,8 +731,33 @@ export default function TransactionsPage() {
     setStartDate(bounds?.min_date ?? "");
     setEndDate(bounds?.max_date ?? "");
     setTripFilterId("");
+    setAmountFilterMode("any");
     setMinAmount(bounds?.min_amount ?? null);
     setMaxAmount(bounds?.max_amount ?? null);
+    setIncomeMin(bounds?.income_min ?? null);
+    setIncomeMax(bounds?.income_max ?? null);
+    setExpenseMinAbs(bounds?.expense_min_abs ?? null);
+    setExpenseMaxAbs(bounds?.expense_max_abs ?? null);
+    setPage(1);
+    if (Number.isFinite(focusTxnId)) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("focus_txn_id");
+      setSearchParams(next);
+    }
+  };
+
+  const clearFocusedTransaction = () => {
+    if (!Number.isFinite(focusTxnId)) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("focus_txn_id");
+    setSearchParams(next);
+    setPage(1);
+  };
+
+  const widenFocusedContext = (days: number) => {
+    if (!focusAnchorDate) return;
+    setStartDate(addDays(focusAnchorDate, -days));
+    setEndDate(addDays(focusAnchorDate, days));
     setPage(1);
   };
 
@@ -626,10 +775,28 @@ export default function TransactionsPage() {
     if (endDate && endDate !== defaultEnd) n += 1;
     if (tripFilterId) n += 1;
 
+    if (amountFilterMode !== "any") n += 1;
     const minBound = bounds?.min_amount ?? null;
     const maxBound = bounds?.max_amount ?? null;
-    if (minBound !== null && minAmount !== null && minAmount !== minBound) n += 1;
-    if (maxBound !== null && maxAmount !== null && maxAmount !== maxBound) n += 1;
+    const incomeMinBound = bounds?.income_min ?? null;
+    const incomeMaxBound = bounds?.income_max ?? null;
+    const expenseMinBound = bounds?.expense_min_abs ?? null;
+    const expenseMaxBound = bounds?.expense_max_abs ?? null;
+    if (amountFilterMode === "any") {
+      if (minBound !== null && minAmount !== null && minAmount !== minBound) n += 1;
+      if (maxBound !== null && maxAmount !== null && maxAmount !== maxBound) n += 1;
+    } else if (amountFilterMode === "income_only") {
+      if (incomeMinBound !== null && incomeMin !== null && incomeMin !== incomeMinBound) n += 1;
+      if (incomeMaxBound !== null && incomeMax !== null && incomeMax !== incomeMaxBound) n += 1;
+    } else if (amountFilterMode === "expense_only") {
+      if (expenseMinBound !== null && expenseMinAbs !== null && expenseMinAbs !== expenseMinBound) n += 1;
+      if (expenseMaxBound !== null && expenseMaxAbs !== null && expenseMaxAbs !== expenseMaxBound) n += 1;
+    } else if (amountFilterMode === "both_separate") {
+      if (incomeMinBound !== null && incomeMin !== null && incomeMin !== incomeMinBound) n += 1;
+      if (incomeMaxBound !== null && incomeMax !== null && incomeMax !== incomeMaxBound) n += 1;
+      if (expenseMinBound !== null && expenseMinAbs !== null && expenseMinAbs !== expenseMinBound) n += 1;
+      if (expenseMaxBound !== null && expenseMaxAbs !== null && expenseMaxAbs !== expenseMaxBound) n += 1;
+    }
 
     return n;
   })();
@@ -638,6 +805,9 @@ export default function TransactionsPage() {
   const selectedTotal = similarCandidates
     .filter((c) => similarSelected.has(c.transaction_id))
     .reduce((sum, c) => sum + c.amount, 0);
+  const isFocusedTxnVisible =
+    Number.isFinite(focusTxnId) &&
+    !!data?.items?.some((item) => item.id === focusTxnId);
 
   if (activeTab === "transfers") {
     return (
@@ -679,6 +849,11 @@ export default function TransactionsPage() {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Transactions</h2>
         <div className="flex gap-2">
+          {Number.isFinite(focusTxnId) ? (
+            <Button variant="outline" onClick={clearFocusedTransaction}>
+              Clear focus
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             onClick={() => {
@@ -702,6 +877,22 @@ export default function TransactionsPage() {
           </Button>
         </div>
       </div>
+      {Number.isFinite(focusTxnId) ? (
+        <div className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+          <span className="font-medium">Focused transaction:</span>
+          <span className="font-mono">#{focusTxnId}</span>
+          {isFocusedTxnVisible ? (
+            <span className="text-muted-foreground">Visible and highlighted below.</span>
+          ) : (
+            <span className="text-muted-foreground">Not visible on current page yet.</span>
+          )}
+          {focusAnchorDate ? (
+            <Button size="sm" variant="outline" onClick={() => widenFocusedContext(90)}>
+              Widen to +/-90 days
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex gap-2">
         {(["all", "unclassified", "classified"] as const).map((f) => (
@@ -887,54 +1078,138 @@ export default function TransactionsPage() {
             </div>
 
             <div className="md:col-span-6">
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-muted-foreground">Amount range</label>
-                <span className="text-xs text-muted-foreground font-mono">
-                  {minAmount ?? "-"} → {maxAmount ?? "-"}
-                </span>
+              <div className="grid gap-2 md:grid-cols-2 md:items-end">
+                <div>
+                  <label className="text-sm text-muted-foreground">Amount mode</label>
+                  <Select
+                    className="mt-1"
+                    value={amountFilterMode}
+                    onChange={(e) => {
+                      setAmountFilterMode(
+                        (e.target.value as "any" | "expense_only" | "income_only" | "both_separate") ?? "any"
+                      );
+                      setPage(1);
+                    }}
+                  >
+                    <option value="any">Any (signed range)</option>
+                    <option value="expense_only">Expense only</option>
+                    <option value="income_only">Income only</option>
+                    <option value="both_separate">Both (separate ranges)</option>
+                  </Select>
+                </div>
               </div>
-              {hasAmountBounds ? (
-                <div className="grid gap-2 md:grid-cols-2 mt-2">
-                  <div>
-                    <input
-                      type="range"
-                      min={bounds!.min_amount!}
-                      max={bounds!.max_amount!}
-                      step={0.01}
-                      value={minAmount ?? bounds!.min_amount!}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        setMinAmount(v);
-                        if (maxAmount !== null && v > maxAmount) setMaxAmount(v);
-                        setPage(1);
-                      }}
-                      className="w-full"
-                    />
-                    <div className="text-xs text-muted-foreground mt-1">Min</div>
-                  </div>
-                  <div>
-                    <input
-                      type="range"
-                      min={bounds!.min_amount!}
-                      max={bounds!.max_amount!}
-                      step={0.01}
-                      value={maxAmount ?? bounds!.max_amount!}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        setMaxAmount(v);
-                        if (minAmount !== null && v < minAmount) setMinAmount(v);
-                        setPage(1);
-                      }}
-                      className="w-full"
-                    />
-                    <div className="text-xs text-muted-foreground mt-1">Max</div>
+
+              {amountFilterMode === "any" && hasAmountBounds ? (
+                <div className="mt-2 space-y-2">
+                  <DoubleRangeSlider
+                    min={bounds!.min_amount!}
+                    max={bounds!.max_amount!}
+                    step={0.01}
+                    minValue={minAmount ?? bounds!.min_amount!}
+                    maxValue={maxAmount ?? bounds!.max_amount!}
+                    onChange={(nextMin, nextMax) => {
+                      setMinAmount(nextMin);
+                      setMaxAmount(nextMax);
+                      setPage(1);
+                    }}
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Min: {formatCurrency(minAmount ?? 0)}</span>
+                    <span>Max: {formatCurrency(maxAmount ?? 0)}</span>
                   </div>
                 </div>
-              ) : (
+              ) : null}
+
+              {amountFilterMode === "income_only" && hasIncomeBounds ? (
+                <div className="mt-2 space-y-2">
+                  <DoubleRangeSlider
+                    min={bounds!.income_min!}
+                    max={bounds!.income_max!}
+                    step={0.01}
+                    minValue={incomeMin ?? bounds!.income_min!}
+                    maxValue={incomeMax ?? bounds!.income_max!}
+                    onChange={(nextMin, nextMax) => {
+                      setIncomeMin(nextMin);
+                      setIncomeMax(nextMax);
+                      setPage(1);
+                    }}
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Income min: {formatCurrency(incomeMin ?? 0)}</span>
+                    <span>Income max: {formatCurrency(incomeMax ?? 0)}</span>
+                  </div>
+                </div>
+              ) : null}
+
+              {amountFilterMode === "expense_only" && hasExpenseBounds ? (
+                <div className="mt-2 space-y-2">
+                  <DoubleRangeSlider
+                    min={bounds!.expense_min_abs!}
+                    max={bounds!.expense_max_abs!}
+                    step={0.01}
+                    minValue={expenseMinAbs ?? bounds!.expense_min_abs!}
+                    maxValue={expenseMaxAbs ?? bounds!.expense_max_abs!}
+                    onChange={(nextMin, nextMax) => {
+                      setExpenseMinAbs(nextMin);
+                      setExpenseMaxAbs(nextMax);
+                      setPage(1);
+                    }}
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Expense min: {formatCurrency(expenseMinAbs ?? 0)}</span>
+                    <span>Expense max: {formatCurrency(expenseMaxAbs ?? 0)}</span>
+                  </div>
+                </div>
+              ) : null}
+
+              {amountFilterMode === "both_separate" && hasIncomeBounds && hasExpenseBounds ? (
+                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                  <div className="space-y-2 rounded-md border border-border p-2">
+                    <div className="text-xs text-muted-foreground">Income range</div>
+                    <DoubleRangeSlider
+                      min={bounds!.income_min!}
+                      max={bounds!.income_max!}
+                      step={0.01}
+                      minValue={incomeMin ?? bounds!.income_min!}
+                      maxValue={incomeMax ?? bounds!.income_max!}
+                      onChange={(nextMin, nextMax) => {
+                        setIncomeMin(nextMin);
+                        setIncomeMax(nextMax);
+                        setPage(1);
+                      }}
+                    />
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Min: {formatCurrency(incomeMin ?? 0)}</span>
+                      <span>Max: {formatCurrency(incomeMax ?? 0)}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2 rounded-md border border-border p-2">
+                    <div className="text-xs text-muted-foreground">Expense range (absolute)</div>
+                    <DoubleRangeSlider
+                      min={bounds!.expense_min_abs!}
+                      max={bounds!.expense_max_abs!}
+                      step={0.01}
+                      minValue={expenseMinAbs ?? bounds!.expense_min_abs!}
+                      maxValue={expenseMaxAbs ?? bounds!.expense_max_abs!}
+                      onChange={(nextMin, nextMax) => {
+                        setExpenseMinAbs(nextMin);
+                        setExpenseMaxAbs(nextMax);
+                        setPage(1);
+                      }}
+                    />
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Min: {formatCurrency(expenseMinAbs ?? 0)}</span>
+                      <span>Max: {formatCurrency(expenseMaxAbs ?? 0)}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {!hasAmountBounds ? (
                 <p className="text-sm text-muted-foreground mt-2">
                   Upload transactions to enable amount sliders.
                 </p>
-              )}
+              ) : null}
             </div>
 
             <div className="md:col-span-6 flex gap-2 justify-end">
@@ -972,7 +1247,170 @@ export default function TransactionsPage() {
               </Button>
             </div>
           )}
-          <div className="overflow-x-auto">
+          <div className="md:hidden p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Select
+                value={sortBy}
+                onChange={(e) => {
+                  setSortBy(
+                    (e.target.value as "date" | "amount" | "merchant" | "description" | "category") ??
+                      "date"
+                  );
+                  setPage(1);
+                }}
+              >
+                <option value="date">Sort: Date</option>
+                <option value="amount">Sort: Amount</option>
+                <option value="merchant">Sort: Merchant</option>
+                <option value="description">Sort: Description</option>
+                <option value="category">Sort: Category</option>
+              </Select>
+              <Select
+                value={sortDir}
+                onChange={(e) => {
+                  setSortDir((e.target.value as "asc" | "desc") ?? "desc");
+                  setPage(1);
+                }}
+              >
+                <option value="desc">Order: Desc</option>
+                <option value="asc">Order: Asc</option>
+              </Select>
+            </div>
+
+            {data?.items.map((txn) => (
+              <div
+                data-focus-txn-id={txn.id}
+                key={txn.id}
+                className={`rounded-md border p-3 space-y-2 ${
+                  Number.isFinite(focusTxnId) && txn.id === focusTxnId
+                    ? "border-primary bg-primary/10 ring-2 ring-primary/40"
+                    : "border-border"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-medium">{formatDate(txn.date)}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {txn.merchant || "Unknown merchant"}
+                    </div>
+                  </div>
+                  <div
+                    className={`text-sm font-mono font-semibold ${
+                      txn.amount >= 0 ? "text-success" : "text-destructive"
+                    }`}
+                  >
+                    {formatCurrency(txn.amount)}
+                  </div>
+                </div>
+
+                <div className="text-sm">{txn.description}</div>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Badge
+                    variant={
+                      txn.transaction_kind === "transfer"
+                        ? "secondary"
+                        : txn.transaction_kind === "income"
+                          ? "success"
+                          : txn.transaction_kind === "adjustment"
+                            ? "warning"
+                            : "default"
+                    }
+                  >
+                    {txn.transaction_kind}
+                  </Badge>
+                  {txn.final_category_name ? (
+                    <Badge variant="outline">{txn.final_category_name}</Badge>
+                  ) : (
+                    <Badge variant="outline">Unclassified</Badge>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      if (expandedTxnId === txn.id) {
+                        setExpandedTxnId(null);
+                        setExpandedRaw(null);
+                        return;
+                      }
+                      setExpandedTxnId(txn.id);
+                      setExpandedLoading(true);
+                      try {
+                        const raw = await api.getTransactionRaw(txn.id);
+                        setExpandedRaw(raw);
+                      } catch {
+                        setExpandedRaw(null);
+                      } finally {
+                        setExpandedLoading(false);
+                      }
+                    }}
+                  >
+                    {expandedTxnId === txn.id ? "Hide details" : "Show details"}
+                  </Button>
+                </div>
+
+                <ClassifyCell
+                  transaction={txn}
+                  categories={categories}
+                  onClassify={handleClassify}
+                  onCategoryCreated={async () => {
+                    await refreshCategories();
+                  }}
+                  onError={(msg) => setError(msg)}
+                />
+
+                {expandedTxnId === txn.id && (
+                  <div className="rounded-md border border-border bg-muted/20 p-2 space-y-2 text-xs">
+                    {expandedLoading ? (
+                      <div className="text-muted-foreground">Loading raw import data...</div>
+                    ) : expandedRaw ? (
+                      <>
+                        {expandedRaw.raw_row_line ? (
+                          <pre className="whitespace-pre-wrap rounded-md border border-border bg-background p-2">
+                            {expandedRaw.raw_row_line}
+                          </pre>
+                        ) : null}
+                        {expandedRaw.raw_row_json ? (
+                          <pre className="whitespace-pre-wrap rounded-md border border-border bg-background p-2">
+                            {(() => {
+                              try {
+                                return JSON.stringify(
+                                  JSON.parse(expandedRaw.raw_row_json),
+                                  null,
+                                  2
+                                );
+                              } catch {
+                                return expandedRaw.raw_row_json;
+                              }
+                            })()}
+                          </pre>
+                        ) : null}
+                        {!expandedRaw.raw_row_json && !expandedRaw.raw_row_line ? (
+                          <div className="text-muted-foreground">
+                            No raw import data stored for this transaction.
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="text-muted-foreground">
+                        No raw import data available.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {data?.items.length === 0 && (
+              <div className="p-6 text-center text-muted-foreground">
+                No transactions found. Upload a bank statement to get started.
+              </div>
+            )}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full table-fixed text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
@@ -1005,6 +1443,7 @@ export default function TransactionsPage() {
                   return (
                   <Fragment key={txn.id}>
                     <tr
+                      data-focus-txn-id={txn.id}
                       draggable={isLinkSource}
                       onDragStart={(e) => {
                         if (!isLinkSource) return;
@@ -1031,7 +1470,9 @@ export default function TransactionsPage() {
                           ? "cursor-grab bg-primary/10"
                           : isLinkDropTarget
                             ? "bg-warning/15"
-                            : "hover:bg-muted/30"
+                            : Number.isFinite(focusTxnId) && txn.id === focusTxnId
+                              ? "bg-primary/15 ring-2 ring-inset ring-primary/50"
+                              : "hover:bg-muted/30"
                       }`}
                     >
                       <td className="p-3 whitespace-nowrap">
@@ -1291,26 +1732,53 @@ export default function TransactionsPage() {
                                       </Button>
                                     </>
                                   ) : (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => {
-                                        setEditOpenTxnId(txn.id);
-                                        setEditDate(txn.date);
-                                        setEditAmount(txn.amount);
-                                        setEditCategoryId(
-                                          txn.final_category_id ??
-                                            txn.predicted_category_id ??
-                                            ""
-                                        );
-                                        setEditMerchant(txn.merchant ?? "");
-                                        setEditDescription(txn.description ?? "");
-                                        setEditRawDescription(txn.raw_description ?? "");
-                                        setEditCurrency((txn.currency ?? "EUR").toUpperCase());
-                                      }}
-                                    >
-                                      Edit
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => {
+                                          setEditOpenTxnId(txn.id);
+                                          setEditDate(txn.date);
+                                          setEditAmount(txn.amount);
+                                          setEditCategoryId(
+                                            txn.final_category_id ??
+                                              txn.predicted_category_id ??
+                                              ""
+                                          );
+                                          setEditMerchant(txn.merchant ?? "");
+                                          setEditDescription(txn.description ?? "");
+                                          setEditRawDescription(txn.raw_description ?? "");
+                                          setEditCurrency((txn.currency ?? "EUR").toUpperCase());
+                                        }}
+                                      >
+                                        Edit
+                                      </Button>
+                                      {isAdmin ? (
+                                        <Button
+                                          size="sm"
+                                          variant="destructive"
+                                          onClick={async () => {
+                                            const reason = window.prompt(
+                                              "Delete reason (required):",
+                                              "duplicate transaction"
+                                            );
+                                            if (!reason || !reason.trim()) return;
+                                            try {
+                                              await api.softDeleteTransaction(txn.id, reason.trim());
+                                              await load();
+                                            } catch (e) {
+                                              setError(
+                                                e instanceof Error
+                                                  ? e.message
+                                                  : "Failed to delete transaction"
+                                              );
+                                            }
+                                          }}
+                                        >
+                                          Delete
+                                        </Button>
+                                      ) : null}
+                                    </div>
                                   )}
                                 </div>
                               </div>

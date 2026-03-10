@@ -3,9 +3,10 @@ import math
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.deps import get_classifier, get_name_suggester, get_pipeline
 from app.ml.classifier import MLClassifier
@@ -85,6 +86,10 @@ def _to_read(txn: Transaction, db: Session) -> TransactionRead:
         transfer_confidence=txn.transfer_confidence,
         transfer_match_source=txn.transfer_match_source,
         is_internal_transfer=txn.is_internal_transfer,
+        is_deleted=txn.is_deleted,
+        deleted_at=txn.deleted_at,
+        deleted_by_person_id=txn.deleted_by_person_id,
+        delete_reason=txn.delete_reason,
         created_at=txn.created_at,
     )
 
@@ -93,6 +98,7 @@ def _to_read(txn: Transaction, db: Session) -> TransactionRead:
 def list_transactions(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    transaction_id: int | None = Query(None, description="Exact transaction id"),
     account_id: int | None = None,
     person_id: int | None = None,
     classified: bool | None = None,
@@ -105,13 +111,19 @@ def list_transactions(
     trip_id: int | None = Query(None, description="Trip id filter with include/exclude overrides"),
     min_amount: float | None = None,
     max_amount: float | None = None,
+    income_min: float | None = Query(None, ge=0),
+    income_max: float | None = Query(None, ge=0),
+    expense_min_abs: float | None = Query(None, ge=0),
+    expense_max_abs: float | None = Query(None, ge=0),
     transaction_kind: str | None = Query(None, pattern="^(income|expense|transfer|adjustment)$"),
     include_transfers: bool = True,
     sort_by: str = Query("date", pattern="^(date|amount|merchant|description|category)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Transaction)
+    query = db.query(Transaction).filter(Transaction.is_deleted.is_(False))
+    if transaction_id is not None:
+        query = query.filter(Transaction.id == transaction_id)
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)
     if person_id is not None:
@@ -205,6 +217,18 @@ def list_transactions(
         query = query.filter(Transaction.amount >= min_amount)
     if max_amount is not None:
         query = query.filter(Transaction.amount <= max_amount)
+    if income_min is not None:
+        query = query.filter(or_(Transaction.amount <= 0, Transaction.amount >= income_min))
+    if income_max is not None:
+        query = query.filter(or_(Transaction.amount <= 0, Transaction.amount <= income_max))
+    if expense_min_abs is not None:
+        query = query.filter(
+            or_(Transaction.amount >= 0, func.abs(Transaction.amount) >= expense_min_abs)
+        )
+    if expense_max_abs is not None:
+        query = query.filter(
+            or_(Transaction.amount >= 0, func.abs(Transaction.amount) <= expense_max_abs)
+        )
     if transaction_kind:
         query = query.filter(Transaction.transaction_kind == transaction_kind)
     if not include_transfers:
@@ -241,7 +265,12 @@ def list_transactions(
 
 @router.get("/transfer-candidates", response_model=list[TransferCandidate])
 def get_transfer_candidates(
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(settings.transfer_candidate_max_results_default, ge=1, le=500),
+    seed_limit: int | None = Query(settings.transfer_candidate_seed_limit_default, ge=1, le=2000),
+    max_results: int | None = Query(settings.transfer_candidate_max_results_default, ge=1, le=2000),
+    min_confidence: float | None = Query(settings.transfer_candidate_min_confidence_default, ge=0.0, le=1.0),
+    amount_tolerance: float | None = Query(settings.transfer_candidate_amount_tolerance_default, ge=0.0),
+    date_window_days: int | None = Query(settings.transfer_candidate_date_window_days_default, ge=0, le=30),
     account_id: int | None = None,
     person_id: int | None = None,
     db: Session = Depends(get_db),
@@ -253,7 +282,15 @@ def get_transfer_candidates(
             for a in db.query(Account).filter(Account.person_id == person_id).all()
         ]
     candidates = find_transfer_candidates(
-        db, limit=limit, account_id=account_id, person_account_ids=person_account_ids
+        db,
+        limit=limit,
+        seed_limit=seed_limit,
+        max_results=max_results,
+        min_confidence=min_confidence,
+        amount_tolerance=amount_tolerance,
+        date_window_days=date_window_days,
+        account_id=account_id,
+        person_account_ids=person_account_ids,
     )
     return [
         TransferCandidate(
@@ -269,6 +306,19 @@ def get_transfer_candidates(
             candidate_currency=item.candidate_currency,
             score=item.score,
             reason=item.reason,
+            reasons=item.reasons,
+            transaction_description=item.transaction_description,
+            candidate_description=item.candidate_description,
+            transaction_raw_description=item.transaction_raw_description,
+            candidate_raw_description=item.candidate_raw_description,
+            transaction_merchant=item.transaction_merchant,
+            candidate_merchant=item.candidate_merchant,
+            transaction_kind=item.transaction_kind,
+            candidate_kind=item.candidate_kind,
+            transaction_is_internal_transfer=item.transaction_is_internal_transfer,
+            candidate_is_internal_transfer=item.candidate_is_internal_transfer,
+            transaction_transfer_group_id=item.transaction_transfer_group_id,
+            candidate_transfer_group_id=item.candidate_transfer_group_id,
         )
         for item in candidates
     ]
@@ -277,9 +327,14 @@ def get_transfer_candidates(
 @router.post("/transfers/auto-link", response_model=TransferAutoLinkResponse)
 def auto_link_transfers(
     limit: int = Query(200, ge=1, le=1000),
+    min_auto_confidence: float | None = Query(None, ge=0.0, le=1.0),
     db: Session = Depends(get_db),
 ):
-    linked, reviewed, skipped = auto_link_high_confidence(db, limit=limit)
+    linked, reviewed, skipped = auto_link_high_confidence(
+        db,
+        limit=limit,
+        min_auto_confidence=min_auto_confidence,
+    )
     return TransferAutoLinkResponse(linked=linked, reviewed=reviewed, skipped=skipped)
 
 
@@ -321,7 +376,7 @@ def get_transaction_bounds(
     db: Session = Depends(get_db),
 ):
     """Return min/max date and min/max amount for current dataset (for UI filters)."""
-    query = db.query(Transaction)
+    query = db.query(Transaction).filter(Transaction.is_deleted.is_(False))
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)
     if person_id is not None:
@@ -339,12 +394,22 @@ def get_transaction_bounds(
         func.min(Transaction.amount),
         func.max(Transaction.amount),
     ).first()
+    income_min, income_max, expense_abs_min, expense_abs_max = query.with_entities(
+        func.min(case((Transaction.amount > 0, Transaction.amount), else_=None)),
+        func.max(case((Transaction.amount > 0, Transaction.amount), else_=None)),
+        func.min(case((Transaction.amount < 0, -Transaction.amount), else_=None)),
+        func.max(case((Transaction.amount < 0, -Transaction.amount), else_=None)),
+    ).first()
 
     return {
         "min_date": str(min_date) if min_date else None,
         "max_date": str(max_date) if max_date else None,
         "min_amount": float(min_amount) if min_amount is not None else None,
         "max_amount": float(max_amount) if max_amount is not None else None,
+        "income_min": float(income_min) if income_min is not None else None,
+        "income_max": float(income_max) if income_max is not None else None,
+        "expense_min_abs": float(expense_abs_min) if expense_abs_min is not None else None,
+        "expense_max_abs": float(expense_abs_max) if expense_abs_max is not None else None,
     }
 
 
@@ -363,6 +428,7 @@ def get_merchant_suggestions(
         .filter(
             Transaction.merchant.isnot(None),
             Transaction.merchant != "",
+            Transaction.is_deleted.is_(False),
             func.lower(Transaction.merchant).like(like),
         )
         .group_by(Transaction.merchant)
@@ -404,7 +470,7 @@ def get_similar_transactions(
 @router.get("/{transaction_id}/raw", response_model=TransactionRawRead)
 def get_transaction_raw(transaction_id: int, db: Session = Depends(get_db)):
     txn = db.get(Transaction, transaction_id)
-    if not txn:
+    if not txn or txn.is_deleted:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return TransactionRawRead(raw_row_json=txn.raw_row_json, raw_row_line=txn.raw_row_line)
 
@@ -422,7 +488,7 @@ def suggest_field_updates(
     name_suggester: CanonicalNameSuggester = Depends(get_name_suggester),
 ):
     seed = db.get(Transaction, transaction_id)
-    if not seed:
+    if not seed or seed.is_deleted:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     similar = find_similar(
@@ -434,7 +500,7 @@ def suggest_field_updates(
     )
     similar_by_id = {item.transaction_id: item for item in similar}
     txns = [db.get(Transaction, s.transaction_id) for s in similar]
-    txns = [t for t in txns if t is not None]
+    txns = [t for t in txns if t is not None and not t.is_deleted]
     response: list[SuggestFieldUpdateCandidate] = []
     for t in txns:
         sim = similar_by_id.get(t.id)
@@ -488,7 +554,7 @@ def suggest_field_updates(
 @router.get("/{transaction_id}", response_model=TransactionRead)
 def get_transaction(transaction_id: int, db: Session = Depends(get_db)):
     txn = db.get(Transaction, transaction_id)
-    if not txn:
+    if not txn or txn.is_deleted:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return _to_read(txn, db)
 
@@ -501,7 +567,7 @@ def classify_transaction(
     classifier: MLClassifier = Depends(get_classifier),
 ):
     txn = db.get(Transaction, transaction_id)
-    if not txn:
+    if not txn or txn.is_deleted:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     cat = db.get(Category, payload.category_id)
@@ -526,7 +592,7 @@ def bulk_classify(
     skipped = 0
     for txn_id in payload.transaction_ids:
         txn = db.get(Transaction, txn_id)
-        if not txn:
+        if not txn or txn.is_deleted:
             skipped += 1
             continue
         # Guardrail: don't mutate already-classified transactions in bulk.
@@ -600,7 +666,7 @@ def bulk_update_fields(
     skipped_reasons: dict[str, int] = {}
     for txn_id in payload.transaction_ids:
         txn = db.get(Transaction, txn_id)
-        if not txn:
+        if not txn or txn.is_deleted:
             skipped += 1
             skipped_reasons["not_found"] = skipped_reasons.get("not_found", 0) + 1
             continue
@@ -641,7 +707,7 @@ def bulk_update_fields(
     if payload.re_predict:
         for txn_id in payload.transaction_ids:
             txn = db.get(Transaction, txn_id)
-            if txn and txn.final_category_id is None:
+            if txn and not txn.is_deleted and txn.final_category_id is None:
                 run_pipeline_on_transaction(db, txn, pipeline)
 
     return BulkUpdateFieldsResponse(
@@ -661,7 +727,7 @@ def update_transaction(
     name_suggester: CanonicalNameSuggester = Depends(get_name_suggester),
 ):
     txn = db.get(Transaction, transaction_id)
-    if not txn:
+    if not txn or txn.is_deleted:
         raise HTTPException(status_code=404, detail="Transaction not found")
     old_merchant = txn.merchant
     old_description = txn.description
@@ -728,7 +794,7 @@ def predict_transaction(
     pipeline: ClassificationPipeline = Depends(get_pipeline),
 ):
     txn = db.get(Transaction, transaction_id)
-    if not txn:
+    if not txn or txn.is_deleted:
         raise HTTPException(status_code=404, detail="Transaction not found")
     txn = run_pipeline_on_transaction(db, txn, pipeline)
     return _to_read(txn, db)

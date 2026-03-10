@@ -20,6 +20,8 @@ const defaultGlobalControls: GlobalControlState = {
   granularity: "auto",
   scope: "household",
   valueMode: "absolute",
+  excludeTripIncluded: false,
+  excludedTripIds: [],
 };
 
 function globalKey(page: PageId) {

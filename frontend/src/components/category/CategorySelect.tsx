@@ -167,12 +167,29 @@ export default function CategorySelect({
                   )}
                   title={row.name}
                   onClick={() => {
+                    // For parent categories, first tap expands to reduce accidental parent selection.
+                    if (row.hasChildren && !search.trim() && !expandedIds.has(row.id)) {
+                      setExpandedIds((prev) => {
+                        const next = new Set(prev);
+                        next.add(row.id);
+                        return next;
+                      });
+                      return;
+                    }
                     onChange(row.id);
                     setOpen(false);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
+                      if (row.hasChildren && !search.trim() && !expandedIds.has(row.id)) {
+                        setExpandedIds((prev) => {
+                          const next = new Set(prev);
+                          next.add(row.id);
+                          return next;
+                        });
+                        return;
+                      }
                       onChange(row.id);
                       setOpen(false);
                     }
@@ -185,7 +202,7 @@ export default function CategorySelect({
                     {row.hasChildren ? (
                       <button
                         type="button"
-                        className="mr-1 rounded p-0.5 hover:bg-muted"
+                        className="mr-1 inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/70 bg-background hover:bg-muted"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -199,13 +216,13 @@ export default function CategorySelect({
                         aria-label={`Toggle ${row.name}`}
                       >
                         {expandedIds.has(row.id) || search.trim() ? (
-                          <ChevronDown className="h-3 w-3" />
+                          <ChevronDown className="h-4 w-4" />
                         ) : (
-                          <ChevronRight className="h-3 w-3" />
+                          <ChevronRight className="h-4 w-4" />
                         )}
                       </button>
                     ) : (
-                      <span className="mr-1 inline-block w-4" />
+                      <span className="mr-1 inline-block w-6" />
                     )}
                   </span>
                   <span className="min-w-0 flex-1 break-words leading-tight">{row.name}</span>
