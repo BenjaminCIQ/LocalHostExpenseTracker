@@ -36,6 +36,7 @@ from app.routers import (
     persons,
     rules,
     suggestions,
+    transfer_linking_rules,
     trips,
     transactions,
     upload,
@@ -288,6 +289,7 @@ app.include_router(ml.router, dependencies=[Depends(require_authenticated_user)]
 app.include_router(overrides.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(rules.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(suggestions.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(transfer_linking_rules.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(trips.router, dependencies=[Depends(require_authenticated_user)])
 
 

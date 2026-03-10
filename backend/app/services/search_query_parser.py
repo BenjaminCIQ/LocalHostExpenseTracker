@@ -140,6 +140,53 @@ def parse_search_query(q: str) -> SearchNode | None:
     return node
 
 
+def _transaction_matches_term(
+    merchant: str, description: str, raw_description: str, term: str
+) -> bool:
+    """Check if a term matches any of merchant/description/raw_description (case-insensitive contains)."""
+    t = (term or "").strip().lower()
+    if not t:
+        return True
+    haystacks = [
+        (merchant or "").lower(),
+        (description or "").lower(),
+        (raw_description or "").lower(),
+    ]
+    return any(t in h for h in haystacks)
+
+
+def transaction_matches_keywords(
+    merchant: str, description: str, raw_description: str, keywords: str
+) -> bool:
+    """
+    Check if a transaction's fields match the parsed keyword query.
+
+    merchant, description, raw_description: transaction fields
+    keywords: search query string (same syntax as transaction search: + | ())
+
+    Returns True if the query is empty or matches. Returns False on parse error.
+    """
+    parsed = parse_search_query(keywords)
+    if parsed is None:
+        return True
+
+    def eval_node(node: SearchNode) -> bool:
+        if isinstance(node, TermNode):
+            return _transaction_matches_term(
+                merchant, description, raw_description, node.value
+            )
+        if isinstance(node, AndNode):
+            return eval_node(node.left) and eval_node(node.right)
+        if isinstance(node, OrNode):
+            return eval_node(node.left) or eval_node(node.right)
+        return False
+
+    try:
+        return eval_node(parsed)
+    except ParseError:
+        return False
+
+
 def build_search_filter(node: SearchNode, term_to_filter):
     """
     Convert a parsed SearchNode tree to a SQLAlchemy filter expression.

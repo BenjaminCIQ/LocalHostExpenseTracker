@@ -356,6 +356,7 @@ def get_transfer_candidates(
             candidate_is_internal_transfer=item.candidate_is_internal_transfer,
             transaction_transfer_group_id=item.transaction_transfer_group_id,
             candidate_transfer_group_id=item.candidate_transfer_group_id,
+            matched_rule_ids=getattr(item, "matched_rule_ids", []) or [],
         )
         for item in candidates
     ]

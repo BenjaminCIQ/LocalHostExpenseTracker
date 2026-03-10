@@ -231,6 +231,32 @@ export interface ParsingRule {
   merchant_group: number;
 }
 
+export interface TransferLinkingRule {
+  id: number;
+  name: string;
+  source_account_id: number;
+  target_account_id: number;
+  source_keywords: string;
+  target_keywords: string;
+  date_window_days: number;
+  amount_tolerance_abs: number;
+  amount_tolerance_pct: number;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface TransferLinkingRuleCreate {
+  name: string;
+  source_account_id: number;
+  target_account_id: number;
+  source_keywords?: string;
+  target_keywords?: string;
+  date_window_days?: number;
+  amount_tolerance_abs?: number;
+  amount_tolerance_pct?: number;
+  enabled?: boolean;
+}
+
 export interface TransactionListResponse {
   items: Transaction[];
   total: number;
@@ -609,6 +635,7 @@ export interface TransferCandidate {
   candidate_is_internal_transfer: boolean;
   transaction_transfer_group_id: string | null;
   candidate_transfer_group_id: string | null;
+  matched_rule_ids?: number[];
 }
 
 export const api = {
@@ -815,6 +842,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  getTransferLinkingRules: () =>
+    request<TransferLinkingRule[]>("/transfer-linking-rules/"),
+  createTransferLinkingRule: (payload: TransferLinkingRuleCreate) =>
+    request<TransferLinkingRule>("/transfer-linking-rules/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateTransferLinkingRule: (id: number, payload: Partial<TransferLinkingRuleCreate>) =>
+    request<TransferLinkingRule>(`/transfer-linking-rules/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteTransferLinkingRule: (id: number) =>
+    request<void>(`/transfer-linking-rules/${id}`, { method: "DELETE" }),
+  applyTransferLinkingRules: (personId?: number) => {
+    const qs = personId != null ? `?person_id=${personId}` : "";
+    return request<{ pairs_linked: number; pairs_ambiguous: number; pairs_no_rule: number }>(
+      `/transfer-linking-rules/apply${qs}`,
+      { method: "POST" }
+    );
+  },
 
   uploadFile: async (
     file: File,

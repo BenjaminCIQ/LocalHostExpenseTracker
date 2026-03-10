@@ -18,6 +18,7 @@ from app.models.person import Person
 from app.models.rule import Rule, RuleCondition
 from app.models.training_data import TrainingData
 from app.models.transaction import Transaction
+from app.models.transfer_linking_rule import TransferLinkingRule
 from app.models.trip import Trip, TripMembershipSuggestion, TripTransactionOverride
 from app.models.user_override import UserOverride
 
@@ -44,6 +45,7 @@ __all__ = [
     "RuleCondition",
     "TrainingData",
     "Transaction",
+    "TransferLinkingRule",
     "Trip",
     "TripMembershipSuggestion",
     "TripTransactionOverride",

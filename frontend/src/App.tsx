@@ -13,6 +13,7 @@ import AccountsPage from "@/pages/AccountsPage";
 import ExternalAccountsPage from "@/pages/ExternalAccountsPage";
 import ImportPage from "@/pages/ImportPage";
 import ClassificationPage from "@/pages/ClassificationPage";
+import TransferLinkingRulesPage from "@/pages/TransferLinkingRulesPage";
 import AdminPage from "@/pages/AdminPage";
 import LoginPage from "@/pages/LoginPage";
 import SetPasswordPage from "@/pages/SetPasswordPage";
@@ -55,6 +56,7 @@ export default function App() {
             <Route path="/external-accounts" element={<ExternalAccountsPage />} />
             <Route path="/categories" element={<CategoriesPage />} />
             <Route path="/classification" element={<ClassificationPage />} />
+            <Route path="/transfer-linking-rules" element={<TransferLinkingRulesPage />} />
             <Route path="/import" element={<ImportPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

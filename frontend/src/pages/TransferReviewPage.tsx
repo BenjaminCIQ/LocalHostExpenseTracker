@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { api, type TransferCandidate } from "@/lib/api";
+import { api, type TransferCandidate, type TransferLinkingRule } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useSelectedPersonId } from "@/lib/personFilter";
 import TransactionComparisonPane from "@/components/transactions/TransactionComparisonPane";
@@ -40,6 +40,7 @@ export default function TransferReviewPage({ embedded = false }: { embedded?: bo
   const selectedPersonId = useSelectedPersonId();
   const initialDefaults = getInitialDefaults();
   const [rows, setRows] = useState<TransferCandidate[]>([]);
+  const [rules, setRules] = useState<TransferLinkingRule[]>([]);
   const [activeBySourceId, setActiveBySourceId] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -73,6 +74,10 @@ export default function TransferReviewPage({ embedded = false }: { embedded?: bo
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    void loadRules();
+  }, []);
 
   useEffect(() => {
     void load();
@@ -337,16 +342,40 @@ export default function TransferReviewPage({ embedded = false }: { embedded?: bo
                         }}
                       />
                     </div>
-                    <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm space-y-1">
-                      <div className="flex items-center gap-2">
+                    <div
+                      className={`rounded-md border px-3 py-2 text-sm space-y-1 ${
+                        active.matched_rule_ids && active.matched_rule_ids.length > 1
+                          ? "border-amber-500/60 bg-amber-500/10"
+                          : "border-border bg-muted/20"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge variant={active.score >= 0.9 ? "success" : active.score >= 0.75 ? "warning" : "secondary"}>
                           {(active.score * 100).toFixed(0)}%
                         </Badge>
+                        {active.matched_rule_ids && active.matched_rule_ids.length > 0 && (
+                          <>
+                            {active.matched_rule_ids.length === 1 ? (
+                              <Badge variant="outline" className="font-normal">
+                                Rule: {rules.find((r) => r.id === active.matched_rule_ids![0])?.name ?? `#${active.matched_rule_ids[0]}`}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="border-amber-500/60 text-amber-700 dark:text-amber-400 font-normal">
+                                Ambiguous: {active.matched_rule_ids.length} rules
+                              </Badge>
+                            )}
+                          </>
+                        )}
                         <span className="text-muted-foreground">
                           {formatDate(active.transaction_date)} {formatCurrency(active.transaction_amount)} {"->"}{" "}
                           {formatDate(active.candidate_date)} {formatCurrency(active.candidate_amount)}
                         </span>
                       </div>
+                      {active.matched_rule_ids && active.matched_rule_ids.length > 1 && (
+                        <div className="text-xs text-amber-700 dark:text-amber-400">
+                          Matched: {active.matched_rule_ids.map((id) => rules.find((r) => r.id === id)?.name ?? `#${id}`).join(", ")}
+                        </div>
+                      )}
                       <div className="text-xs text-muted-foreground">{active.reasons?.join(", ") || active.reason}</div>
                       <div className="flex items-center gap-2 pt-1">
                         <Button size="sm" onClick={() => void approve(active)} disabled={actionLoading}>

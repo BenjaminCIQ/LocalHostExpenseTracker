@@ -10,6 +10,7 @@ from app.pipeline.pipeline import ClassificationPipeline
 from app.schemas.transaction import ImportResult
 from app.services.classification_service import run_pipeline_on_import_batch
 from app.services.ingestion_service import ingest_file
+from app.services.transfer_reconciliation_service import apply_transfer_linking_rules
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
@@ -68,6 +69,9 @@ async def upload_bank_statement(
     # Populate predictions immediately after ingestion so the UI can show
     # rule/override-based suggestions without requiring a manual re-run.
     run_pipeline_on_import_batch(db, batch.id, pipeline)
+
+    # Apply transfer linking rules (auto-link when exactly one rule matches).
+    apply_transfer_linking_rules(db, person_id=None)
 
     return ImportResult(
         batch_id=batch.id,

@@ -200,6 +200,7 @@ class TransferCandidate(BaseModel):
     candidate_is_internal_transfer: bool = False
     transaction_transfer_group_id: str | None = None
     candidate_transfer_group_id: str | None = None
+    matched_rule_ids: list[int] = Field(default_factory=list)
 
 
 class TransferAutoLinkResponse(BaseModel):

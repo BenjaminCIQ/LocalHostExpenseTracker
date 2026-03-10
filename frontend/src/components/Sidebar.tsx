@@ -8,6 +8,7 @@ import {
   GitBranch,
   Landmark,
   LayoutDashboard,
+  Link2,
   List,
   Palette,
   Plane,
@@ -48,6 +49,7 @@ const ACCOUNT_ITEMS: NavItem[] = [
 const CONFIG_ITEMS: NavItem[] = [
   { to: "/categories", label: "Categories", icon: Tags },
   { to: "/classification", label: "Classification", icon: GitBranch },
+  { to: "/transfer-linking-rules", label: "Transfer Linking Rules", icon: Link2 },
   { to: "/import", label: "Import", icon: Upload },
   { to: "/people", label: "People", icon: Users },
   { to: "/ml", label: "ML Status", icon: Brain },

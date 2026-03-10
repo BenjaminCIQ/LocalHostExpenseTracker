@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.transaction import Transaction
+from app.models.transfer_linking_rule import TransferLinkingRule
+from app.services.search_query_parser import transaction_matches_keywords
 
 
 @dataclass
@@ -38,6 +40,7 @@ class TransferCandidateResult:
     candidate_is_internal_transfer: bool
     transaction_transfer_group_id: str | None
     candidate_transfer_group_id: str | None
+    matched_rule_ids: list[int] = ()
 
 
 def _confidence(
@@ -130,6 +133,7 @@ def find_transfer_candidates(
     date_window_days: int | None = None,
     account_id: int | None = None,
     person_account_ids: list[int] | None = None,
+    include_matched_rules: bool = True,
 ) -> list[TransferCandidateResult]:
     seed_limit = seed_limit if seed_limit is not None else limit
     max_results = max_results if max_results is not None else limit
@@ -211,6 +215,7 @@ def find_transfer_candidates(
                     candidate_is_internal_transfer=bool(cand.is_internal_transfer),
                     transaction_transfer_group_id=txn.transfer_group_id,
                     candidate_transfer_group_id=cand.transfer_group_id,
+                    matched_rule_ids=(),
                 )
             )
 
@@ -219,11 +224,28 @@ def find_transfer_candidates(
         key = tuple(sorted([item.transaction_id, item.candidate_id]))
         if key not in dedup or dedup[key].score < item.score:
             dedup[key] = item
-    return sorted(
+    final = sorted(
         dedup.values(),
         key=lambda x: (x.score, x.transaction_date, x.transaction_id),
         reverse=True,
     )[:max_results]
+
+    if include_matched_rules and final:
+        rules = (
+            db.query(TransferLinkingRule)
+            .filter(TransferLinkingRule.enabled.is_(True))
+            .all()
+        )
+        if rules:
+            pair_to_rules = get_matched_rule_ids_for_candidates(db, final, rules)
+            for item in final:
+                key = (
+                    min(item.transaction_id, item.candidate_id),
+                    max(item.transaction_id, item.candidate_id),
+                )
+                item.matched_rule_ids = pair_to_rules.get(key, [])
+
+    return final
 
 
 def link_transfer_pair(
@@ -276,6 +298,191 @@ def unlink_transfer(db: Session, transaction_id: int) -> bool:
         db.add(item)
     db.commit()
     return True
+
+
+def _get_matching_rule_ids_for_pair(
+    db: Session,
+    txn: Transaction,
+    cand: Transaction,
+    rules: list[TransferLinkingRule],
+) -> list[int]:
+    """Return rule ids that match this (txn, cand) pair. txn is outflow, cand is inflow."""
+    matching: list[int] = []
+    for rule in rules:
+        if txn.account_id != rule.source_account_id or cand.account_id != rule.target_account_id:
+            continue
+        if txn.amount >= 0 or cand.amount <= 0:
+            continue
+        day_delta = abs((txn.date - cand.date).days)
+        if day_delta > rule.date_window_days:
+            continue
+        amount_delta = abs(abs(txn.amount) - abs(cand.amount))
+        base = max(abs(txn.amount), abs(cand.amount), 1.0)
+        if amount_delta > rule.amount_tolerance_abs and (
+            amount_delta / base
+        ) > rule.amount_tolerance_pct:
+            continue
+        if not transaction_matches_keywords(
+            txn.merchant or "",
+            txn.description or "",
+            txn.raw_description or "",
+            rule.source_keywords or "",
+        ):
+            continue
+        if not transaction_matches_keywords(
+            cand.merchant or "",
+            cand.description or "",
+            cand.raw_description or "",
+            rule.target_keywords or "",
+        ):
+            continue
+        matching.append(rule.id)
+    return matching
+
+
+def get_matched_rule_ids_for_candidates(
+    db: Session,
+    candidates: list[TransferCandidateResult],
+    rules: list[TransferLinkingRule],
+) -> dict[tuple[int, int], list[int]]:
+    """For each (txn_id, cand_id) pair, compute which rules match."""
+    pair_to_rules: dict[tuple[int, int], list[int]] = {}
+    for item in candidates:
+        txn = db.get(Transaction, item.transaction_id)
+        cand = db.get(Transaction, item.candidate_id)
+        if not txn or not cand:
+            continue
+        # Try both orderings (outflow, inflow)
+        ids1 = _get_matching_rule_ids_for_pair(db, txn, cand, rules)
+        ids2 = _get_matching_rule_ids_for_pair(db, cand, txn, rules)
+        key = (min(item.transaction_id, item.candidate_id), max(item.transaction_id, item.candidate_id))
+        all_ids = list(dict.fromkeys(ids1 + ids2))
+        pair_to_rules[key] = all_ids
+    return pair_to_rules
+
+
+def apply_transfer_linking_rules(
+    db: Session,
+    person_id: int | None = None,
+) -> dict[str, int]:
+    """
+    Apply transfer linking rules. Only auto-links when exactly one rule matches a pair.
+    Returns dict with pairs_linked, pairs_ambiguous, pairs_no_rule.
+    """
+    rules = (
+        db.query(TransferLinkingRule)
+        .filter(TransferLinkingRule.enabled.is_(True))
+        .all()
+    )
+    if not rules:
+        return {"pairs_linked": 0, "pairs_ambiguous": 0, "pairs_no_rule": 0}
+
+    # person_account_ids: if person_id set, restrict to that person's accounts
+    person_account_ids: list[int] | None = None
+    if person_id is not None:
+        from app.models.account import Account
+
+        person_account_ids = [
+            r[0]
+            for r in db.query(Account.id).filter(Account.person_id == person_id).all()
+        ]
+        if not person_account_ids:
+            return {"pairs_linked": 0, "pairs_ambiguous": 0, "pairs_no_rule": 0}
+
+    # Build map: (id_a, id_b) -> set of rule ids that match
+    pair_to_rules: dict[tuple[int, int], set[int]] = {}
+
+    for rule in rules:
+        if person_account_ids and (
+            rule.source_account_id not in person_account_ids
+            or rule.target_account_id not in person_account_ids
+        ):
+            continue
+
+        # Outflow: source_account, amount < 0, matches source_keywords
+        outflows = (
+            db.query(Transaction)
+            .filter(
+                Transaction.account_id == rule.source_account_id,
+                Transaction.amount < 0,
+                Transaction.is_internal_transfer.is_(False),
+                Transaction.transfer_group_id.is_(None),
+            )
+            .all()
+        )
+        # Inflow: target_account, amount > 0, matches target_keywords
+        inflows = (
+            db.query(Transaction)
+            .filter(
+                Transaction.account_id == rule.target_account_id,
+                Transaction.amount > 0,
+                Transaction.is_internal_transfer.is_(False),
+                Transaction.transfer_group_id.is_(None),
+            )
+            .all()
+        )
+
+        for txn_out in outflows:
+            if not transaction_matches_keywords(
+                txn_out.merchant or "",
+                txn_out.description or "",
+                txn_out.raw_description or "",
+                rule.source_keywords or "",
+            ):
+                continue
+            for txn_in in inflows:
+                if not transaction_matches_keywords(
+                    txn_in.merchant or "",
+                    txn_in.description or "",
+                    txn_in.raw_description or "",
+                    rule.target_keywords or "",
+                ):
+                    continue
+                day_delta = abs((txn_out.date - txn_in.date).days)
+                if day_delta > rule.date_window_days:
+                    continue
+                amount_delta = abs(abs(txn_out.amount) - abs(txn_in.amount))
+                base = max(abs(txn_out.amount), abs(txn_in.amount), 1.0)
+                if amount_delta > rule.amount_tolerance_abs and (
+                    amount_delta / base
+                ) > rule.amount_tolerance_pct:
+                    continue
+                key = (
+                    min(txn_out.id, txn_in.id),
+                    max(txn_out.id, txn_in.id),
+                )
+                pair_to_rules.setdefault(key, set()).add(rule.id)
+
+    pairs_linked = 0
+    pairs_ambiguous = 0
+    used_ids: set[int] = set()
+
+    for (id_a, id_b), matching_rule_ids in pair_to_rules.items():
+        if id_a in used_ids or id_b in used_ids:
+            continue
+        if len(matching_rule_ids) == 1:
+            rule_id = next(iter(matching_rule_ids))
+            try:
+                link_transfer_pair(
+                    db,
+                    id_a,
+                    id_b,
+                    confidence=1.0,
+                    source=f"rule:{rule_id}",
+                )
+                pairs_linked += 1
+                used_ids.add(id_a)
+                used_ids.add(id_b)
+            except ValueError:
+                pairs_ambiguous += 1
+        else:
+            pairs_ambiguous += 1
+
+    return {
+        "pairs_linked": pairs_linked,
+        "pairs_ambiguous": pairs_ambiguous,
+        "pairs_no_rule": 0,
+    }
 
 
 def auto_link_high_confidence(
