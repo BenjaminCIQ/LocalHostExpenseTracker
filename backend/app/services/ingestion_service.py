@@ -12,6 +12,10 @@ from app.parsers.base import ParsedTransaction
 from app.parsers.csv_parser import CSVBankParser
 from app.parsers.format_detector import detect_parser
 from app.schemas.import_profile import json_to_columns
+from app.services.duplicate_detection_service import (
+    find_potential_duplicate_for_parsed,
+    store_duplicate_overrides,
+)
 from app.services.payment_operator import detect_payment_operator
 
 logger = logging.getLogger(__name__)
@@ -29,6 +33,7 @@ def ingest_file(
     filename: str,
     account_id: int,
     import_profile_id: int | None = None,
+    duplicate_override_keys: list[str] | None = None,
 ) -> ImportBatch:
     """Parse a bank export file and insert deduplicated transactions."""
     parser = detect_parser(file_content, filename)
@@ -103,6 +108,16 @@ def ingest_file(
 
     imported = 0
     skipped = 0
+    potential_duplicates: list[dict] = []
+    overrides_applied = 0
+    if duplicate_override_keys:
+        overrides_applied = store_duplicate_overrides(
+            db,
+            account_id=account_id,
+            duplicate_keys=duplicate_override_keys,
+        )
+        if overrides_applied:
+            db.flush()
     seen_dedup_hashes: set[str] = set()
 
     for p in parsed:
@@ -124,6 +139,31 @@ def ingest_file(
             skipped += 1
             continue
 
+        potential_dup = find_potential_duplicate_for_parsed(db, account_id, p)
+        if potential_dup is not None:
+            skipped += 1
+            potential_duplicates.append(
+                {
+                    "duplicate_key": potential_dup.duplicate_key,
+                    "rating": potential_dup.rating,
+                    "reason": potential_dup.reason,
+                    "existing_transaction_id": potential_dup.transaction_id,
+                    "incoming_date": potential_dup.incoming_date,
+                    "incoming_amount": potential_dup.incoming_amount,
+                    "incoming_currency": potential_dup.incoming_currency,
+                    "incoming_merchant": potential_dup.incoming_merchant,
+                    "incoming_description": potential_dup.incoming_description,
+                    "incoming_raw_description": potential_dup.incoming_raw_description,
+                    "existing_date": potential_dup.existing_date,
+                    "existing_amount": potential_dup.existing_amount,
+                    "existing_currency": potential_dup.existing_currency,
+                    "existing_merchant": potential_dup.existing_merchant,
+                    "existing_description": potential_dup.existing_description,
+                    "existing_raw_description": potential_dup.existing_raw_description,
+                }
+            )
+            continue
+
         txn = Transaction(
             account_id=account_id,
             import_batch_id=batch.id,
@@ -142,6 +182,8 @@ def ingest_file(
 
     batch.transaction_count = imported
     batch.duplicates_skipped = skipped
+    setattr(batch, "_potential_duplicates", potential_duplicates)
+    setattr(batch, "_duplicate_overrides_applied", overrides_applied)
     db.commit()
 
     logger.info(

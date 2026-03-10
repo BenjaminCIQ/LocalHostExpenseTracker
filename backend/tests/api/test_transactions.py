@@ -82,6 +82,17 @@ def test_transactions_support_separate_income_expense_ranges(client):
             "currency": "EUR",
         },
     )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-05",
+            "amount": 0.0,
+            "description": "Zero adjustment",
+            "merchant": "System",
+            "currency": "EUR",
+        },
+    )
 
     res = client.get(
         "/api/transactions/?income_min=1000&income_max=2500&expense_min_abs=100&expense_max_abs=200"
@@ -92,6 +103,7 @@ def test_transactions_support_separate_income_expense_ranges(client):
     assert -120.0 in amounts
     assert -800.0 not in amounts
     assert 150.0 not in amounts
+    assert 0.0 not in amounts
 
 
 def test_search_and_merchant_filter(client, sample_csv: str):
@@ -104,6 +116,116 @@ def test_search_and_merchant_filter(client, sample_csv: str):
     res2 = client.get("/api/transactions/?q=gehalt")
     assert res2.status_code == 200
     assert res2.json()["total"] >= 1
+
+
+def test_search_multimatch_and_or_grouping(client):
+    """Test multi-match search: + AND, | OR, () grouping."""
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-03-01",
+            "amount": -50.0,
+            "description": "REWE Groceries",
+            "merchant": "REWE",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-03-02",
+            "amount": -30.0,
+            "description": "Lidl Groceries",
+            "merchant": "Lidl",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-03-03",
+            "amount": -20.0,
+            "description": "REWE Snacks",
+            "merchant": "REWE",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-03-04",
+            "amount": -10.0,
+            "description": "Lidl Drinks",
+            "merchant": "Lidl",
+            "currency": "EUR",
+        },
+    )
+
+    # OR: REWE|Lidl -> any merchant REWE or Lidl
+    or_res = client.get("/api/transactions/", params={"q": "REWE|Lidl"})
+    assert or_res.status_code == 200
+    or_items = or_res.json()["items"]
+    assert len(or_items) >= 4
+    merchants = {i["merchant"] for i in or_items}
+    assert "REWE" in merchants
+    assert "Lidl" in merchants
+
+    # AND: REWE+Groceries -> REWE and Groceries (+ must be %2B in URL)
+    and_res = client.get("/api/transactions/", params={"q": "REWE+Groceries"})
+    assert and_res.status_code == 200
+    and_items = and_res.json()["items"]
+    assert len(and_items) >= 1
+    assert all("REWE" in (i.get("merchant") or "") or "REWE" in (i.get("description") or "") for i in and_items)
+    assert all("Groceries" in (i.get("description") or "") for i in and_items)
+
+    # Grouping: (REWE|Lidl)+Groceries -> (REWE or Lidl) and Groceries
+    group_res = client.get("/api/transactions/", params={"q": "(REWE|Lidl)+Groceries"})
+    assert group_res.status_code == 200
+    group_items = group_res.json()["items"]
+    assert len(group_items) >= 2
+
+
+def test_filter_by_multiple_accounts(client):
+    a2 = client.post("/api/accounts/", json={"name": "Savings", "currency": "EUR"})
+    assert a2.status_code == 201
+    account_2_id = a2.json()["id"]
+
+    t1 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-02-01",
+            "amount": -10.0,
+            "description": "Coffee A",
+            "merchant": "Cafe",
+            "currency": "EUR",
+        },
+    )
+    assert t1.status_code == 201
+    t2 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": account_2_id,
+            "date": "2026-02-01",
+            "amount": -20.0,
+            "description": "Coffee B",
+            "merchant": "Cafe",
+            "currency": "EUR",
+        },
+    )
+    assert t2.status_code == 201
+
+    only_a1 = client.get("/api/transactions/?account_ids=1").json()
+    assert all(item["account_id"] == 1 for item in only_a1["items"])
+
+    both = client.get(f"/api/transactions/?account_ids=1,{account_2_id}").json()
+    account_ids = {item["account_id"] for item in both["items"]}
+    assert 1 in account_ids
+    assert account_2_id in account_ids
 
 
 def test_classify_transaction_and_filters(client, sample_csv: str):
@@ -348,6 +470,36 @@ def test_transfer_candidates_and_auto_link(client):
     assert linked.status_code == 200
     body = linked.json()
     assert body["reviewed"] >= 1
+
+
+def test_potential_duplicates_checker_endpoint(client):
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-02-10",
+            "amount": -44.0,
+            "description": "Market city center",
+            "merchant": "Market",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-02-10",
+            "amount": -44.0,
+            "description": "Market city centre",
+            "merchant": "Market",
+            "currency": "EUR",
+        },
+    )
+    res = client.get("/api/transactions/potential-duplicates?limit=20")
+    assert res.status_code == 200
+    items = res.json()
+    assert isinstance(items, list)
+    assert any(item["rating"] >= 0.72 for item in items)
 
 
 def test_transfer_auto_link_honors_threshold_override(client):

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -17,6 +19,10 @@ async def upload_bank_statement(
     account_id: int = Query(..., description="Account to import into"),
     import_profile_id: int | None = Query(
         None, description="Optional import profile to use for parsing"
+    ),
+    duplicate_override_keys_json: str | None = Form(
+        None,
+        description="JSON array of duplicate keys explicitly approved by user",
     ),
     db: Session = Depends(get_db),
     pipeline: ClassificationPipeline = Depends(get_pipeline),
@@ -37,6 +43,16 @@ async def upload_bank_statement(
                 detail="Unable to decode file. Supported encodings: UTF-8, Latin-1",
             )
 
+    duplicate_override_keys: list[str] = []
+    if duplicate_override_keys_json:
+        try:
+            parsed = json.loads(duplicate_override_keys_json)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="duplicate_override_keys_json must be valid JSON")
+        if not isinstance(parsed, list):
+            raise HTTPException(status_code=400, detail="duplicate_override_keys_json must be a JSON array")
+        duplicate_override_keys = [str(x) for x in parsed if str(x).strip()]
+
     try:
         batch = ingest_file(
             db,
@@ -44,6 +60,7 @@ async def upload_bank_statement(
             file.filename or "unknown.csv",
             account_id,
             import_profile_id=import_profile_id,
+            duplicate_override_keys=duplicate_override_keys,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -58,4 +75,6 @@ async def upload_bank_statement(
         transactions_imported=batch.transaction_count,
         duplicates_skipped=batch.duplicates_skipped,
         account_id=account_id,
+        potential_duplicates=getattr(batch, "_potential_duplicates", []),
+        duplicate_overrides_applied=getattr(batch, "_duplicate_overrides_applied", 0),
     )

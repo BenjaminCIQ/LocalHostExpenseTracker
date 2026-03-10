@@ -16,6 +16,7 @@ from app.models.transaction import Transaction
 from app.models.trip import Trip, TripTransactionOverride
 from app.pipeline.pipeline import ClassificationPipeline
 from app.schemas.transaction import (
+    ExistingDuplicateCandidateRead,
     BulkUpdateFieldsRequest,
     BulkUpdateFieldsResponse,
     BulkClassifyRequest,
@@ -33,6 +34,12 @@ from app.schemas.transaction import (
     TransactionRawRead,
     TransactionRead,
     TransactionUpdate,
+)
+from app.services.duplicate_detection_service import find_existing_potential_duplicates
+from app.services.search_query_parser import (
+    ParseError as SearchParseError,
+    build_search_filter,
+    parse_search_query,
 )
 from app.services.similarity_service import (
     find_similar,
@@ -100,6 +107,7 @@ def list_transactions(
     page_size: int = Query(50, ge=1, le=200),
     transaction_id: int | None = Query(None, description="Exact transaction id"),
     account_id: int | None = None,
+    account_ids: str | None = Query(None, description="Comma separated account ids"),
     person_id: int | None = None,
     classified: bool | None = None,
     q: str | None = Query(None, description="Free-text search (merchant/description/raw_description)"),
@@ -126,6 +134,18 @@ def list_transactions(
         query = query.filter(Transaction.id == transaction_id)
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)
+    elif account_ids:
+        ids: list[int] = []
+        for raw in account_ids.split(","):
+            val = raw.strip()
+            if not val:
+                continue
+            try:
+                ids.append(int(val))
+            except ValueError:
+                continue
+        if ids:
+            query = query.filter(Transaction.account_id.in_(ids))
     if person_id is not None:
         query = query.join(Account, Transaction.account_id == Account.id).filter(
             Account.person_id == person_id
@@ -168,13 +188,21 @@ def list_transactions(
         query = query.filter(_contains(Transaction.merchant, merchant))
 
     if q:
-        query = query.filter(
-            or_(
-                _contains(Transaction.merchant, q),
-                _contains(Transaction.description, q),
-                _contains(Transaction.raw_description, q),
+        def _term_filter(term: str):
+            return or_(
+                _contains(Transaction.merchant, term),
+                _contains(Transaction.description, term),
+                _contains(Transaction.raw_description, term),
             )
-        )
+
+        try:
+            parsed = parse_search_query(q)
+            if parsed is not None:
+                query = query.filter(build_search_filter(parsed, _term_filter))
+            else:
+                query = query.filter(_term_filter(q.strip()))
+        except SearchParseError:
+            query = query.filter(_term_filter(q.strip()))
 
     if start_date:
         query = query.filter(Transaction.date >= start_date)
@@ -217,17 +245,26 @@ def list_transactions(
         query = query.filter(Transaction.amount >= min_amount)
     if max_amount is not None:
         query = query.filter(Transaction.amount <= max_amount)
+    if (
+        income_min is not None
+        or income_max is not None
+        or expense_min_abs is not None
+        or expense_max_abs is not None
+    ):
+        # Zero-value transactions are neither meaningful income nor expense
+        # and should not leak through separate income/expense range guards.
+        query = query.filter(Transaction.amount != 0)
     if income_min is not None:
-        query = query.filter(or_(Transaction.amount <= 0, Transaction.amount >= income_min))
+        query = query.filter(or_(Transaction.amount < 0, Transaction.amount >= income_min))
     if income_max is not None:
-        query = query.filter(or_(Transaction.amount <= 0, Transaction.amount <= income_max))
+        query = query.filter(or_(Transaction.amount < 0, Transaction.amount <= income_max))
     if expense_min_abs is not None:
         query = query.filter(
-            or_(Transaction.amount >= 0, func.abs(Transaction.amount) >= expense_min_abs)
+            or_(Transaction.amount > 0, func.abs(Transaction.amount) >= expense_min_abs)
         )
     if expense_max_abs is not None:
         query = query.filter(
-            or_(Transaction.amount >= 0, func.abs(Transaction.amount) <= expense_max_abs)
+            or_(Transaction.amount > 0, func.abs(Transaction.amount) <= expense_max_abs)
         )
     if transaction_kind:
         query = query.filter(Transaction.transaction_kind == transaction_kind)
@@ -321,6 +358,37 @@ def get_transfer_candidates(
             candidate_transfer_group_id=item.candidate_transfer_group_id,
         )
         for item in candidates
+    ]
+
+
+@router.get("/potential-duplicates", response_model=list[ExistingDuplicateCandidateRead])
+def get_potential_duplicates(
+    limit: int = Query(200, ge=1, le=1000),
+    account_id: int | None = None,
+    person_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    person_account_ids: list[int] | None = None
+    if person_id is not None:
+        person_account_ids = [
+            a.id
+            for a in db.query(Account).filter(Account.person_id == person_id).all()
+        ]
+    items = find_existing_potential_duplicates(
+        db,
+        account_id=account_id,
+        person_account_ids=person_account_ids,
+        limit=limit,
+    )
+    return [
+        ExistingDuplicateCandidateRead(
+            transaction_id=item["transaction_id"],
+            candidate_id=item["candidate_id"],
+            account_id=item["account_id"],
+            rating=item["rating"],
+            reason=item["reason"],
+        )
+        for item in items
     ]
 
 

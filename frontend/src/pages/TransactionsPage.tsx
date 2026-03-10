@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
+import { Fragment, useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,8 +7,10 @@ import { Select } from "@/components/ui/select";
 import DoubleRangeSlider from "@/components/ui/DoubleRangeSlider";
 import CategorySelect from "@/components/category/CategorySelect";
 import CategoryMultiDropdown from "@/components/category/CategoryMultiDropdown";
+import AccountMultiDropdown from "@/components/account/AccountMultiDropdown";
 import { Tabs } from "@/components/ui/tabs";
 import {
+  AlertCircle,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -18,6 +20,7 @@ import {
 import {
   api,
   type Account,
+  type ExistingDuplicateCandidate,
   type Transaction,
   type TransactionListResponse,
   type Category,
@@ -31,6 +34,7 @@ import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useSelectedPersonId } from "@/lib/personFilter";
 import { useAuth } from "@/lib/auth";
 import TransferReviewPage from "@/pages/TransferReviewPage";
+import TransactionComparisonPane from "@/components/transactions/TransactionComparisonPane";
 
 type FilterMode = "all" | "unclassified" | "classified";
 
@@ -42,6 +46,14 @@ function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00`);
   d.setDate(d.getDate() + days);
   return toIsoDate(d);
+}
+
+function roundMoney(value: number): number {
+  return Math.round(value);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return roundMoney(Math.min(max, Math.max(min, value)));
 }
 
 function scrollToFocusedTransaction(txnId: number): void {
@@ -222,11 +234,20 @@ export default function TransactionsPage() {
   const selectedPersonId = useSelectedPersonId();
   const focusTxnIdParam = searchParams.get("focus_txn_id");
   const focusTxnId = focusTxnIdParam ? Number(focusTxnIdParam) : Number.NaN;
-  const activeTab = searchParams.get("tab") === "transfers" ? "transfers" : "transactions";
+  const activeTabParam = searchParams.get("tab");
+  const activeTab =
+    activeTabParam === "transfers" || activeTabParam === "duplicates"
+      ? activeTabParam
+      : "transactions";
   const [data, setData] = useState<TransactionListResponse | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<ExistingDuplicateCandidate[]>([]);
+  const [duplicateTxnById, setDuplicateTxnById] = useState<Record<number, Transaction>>({});
+  const [duplicateActiveBySourceId, setDuplicateActiveBySourceId] = useState<Record<number, number>>({});
+  const [duplicateAlertCount, setDuplicateAlertCount] = useState(0);
+  const [transferAlertCount, setTransferAlertCount] = useState(0);
   const [focusAnchorDate, setFocusAnchorDate] = useState<string | null>(null);
   const [focusPreparedForId, setFocusPreparedForId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
@@ -247,6 +268,8 @@ export default function TransactionsPage() {
 
   const [searchText, setSearchText] = useState("");
   const [merchantText, setMerchantText] = useState("");
+  const [accountFilterIds, setAccountFilterIds] = useState<number[]>([]);
+  const [accountFilterSearch, setAccountFilterSearch] = useState("");
   const [categoryFilterIds, setCategoryFilterIds] = useState<number[]>([]);
   const [categoryFilterSearch, setCategoryFilterSearch] = useState("");
   const [transactionKindFilter, setTransactionKindFilter] = useState<
@@ -363,6 +386,13 @@ export default function TransactionsPage() {
         .map((c) => c.name),
     [categories, categoryFilterIds]
   );
+  const selectedAccountNames = useMemo(
+    () =>
+      accounts
+        .filter((a) => accountFilterIds.includes(a.id))
+        .map((a) => a.name),
+    [accounts, accountFilterIds]
+  );
 
   function buildTransferLinkWarnings(source: Transaction, target: Transaction): string[] {
     const warnings: string[] = [];
@@ -405,6 +435,7 @@ export default function TransactionsPage() {
       classified?: boolean;
       q?: string;
       merchant?: string;
+      account_ids?: number[];
       category_id?: number;
       category_ids?: number[];
       start_date?: string;
@@ -422,43 +453,51 @@ export default function TransactionsPage() {
       sort_dir?: "asc" | "desc";
     } = {
       page,
-      page_size: 50,
+      page_size: Number.isFinite(focusTxnId) ? 200 : 50,
     };
+    if (Number.isFinite(focusTxnId)) {
+      params.sort_by = "date";
+      params.sort_dir = "desc";
+    }
     if (selectedPersonId) params.person_id = selectedPersonId;
     if (filter === "classified") params.classified = true;
     if (filter === "unclassified") params.classified = false;
     if (searchText.trim()) params.q = searchText.trim();
     if (merchantText.trim()) params.merchant = merchantText.trim();
+    if (accountFilterIds.length) params.account_ids = accountFilterIds;
     if (categoryFilterIds.length === 1) params.category_id = categoryFilterIds[0];
     if (categoryFilterIds.length > 1) params.category_ids = categoryFilterIds;
     if (startDate) params.start_date = startDate;
     if (endDate) params.end_date = endDate;
     if (tripFilterId) params.trip_id = Number(tripFilterId);
     if (amountFilterMode === "any") {
-      if (minAmount !== null) params.min_amount = minAmount;
-      if (maxAmount !== null) params.max_amount = maxAmount;
+      if (minAmount !== null) params.min_amount = roundMoney(minAmount);
+      if (maxAmount !== null) params.max_amount = roundMoney(maxAmount);
     } else if (amountFilterMode === "income_only") {
-      if (incomeMin !== null) params.min_amount = incomeMin;
-      if (incomeMax !== null) params.max_amount = incomeMax;
+      if (incomeMin !== null) params.min_amount = roundMoney(incomeMin);
+      if (incomeMax !== null) params.max_amount = roundMoney(incomeMax);
     } else if (amountFilterMode === "expense_only") {
-      if (expenseMaxAbs !== null) params.min_amount = -expenseMaxAbs;
-      if (expenseMinAbs !== null) params.max_amount = -expenseMinAbs;
+      if (expenseMaxAbs !== null) params.min_amount = -roundMoney(expenseMaxAbs);
+      if (expenseMinAbs !== null) params.max_amount = -roundMoney(expenseMinAbs);
     } else if (amountFilterMode === "both_separate") {
-      if (incomeMin !== null) params.income_min = incomeMin;
-      if (incomeMax !== null) params.income_max = incomeMax;
-      if (expenseMinAbs !== null) params.expense_min_abs = expenseMinAbs;
-      if (expenseMaxAbs !== null) params.expense_max_abs = expenseMaxAbs;
+      if (incomeMin !== null) params.income_min = roundMoney(incomeMin);
+      if (incomeMax !== null) params.income_max = roundMoney(incomeMax);
+      if (expenseMinAbs !== null) params.expense_min_abs = roundMoney(expenseMinAbs);
+      if (expenseMaxAbs !== null) params.expense_max_abs = roundMoney(expenseMaxAbs);
     }
     if (transactionKindFilter) params.transaction_kind = transactionKindFilter;
     params.include_transfers = includeTransfers;
-    params.sort_by = sortBy;
-    params.sort_dir = sortDir;
+    if (!Number.isFinite(focusTxnId)) {
+      params.sort_by = sortBy;
+      params.sort_dir = sortDir;
+    }
     api.getTransactions(params).then(setData).catch((e) => setError(e.message));
   }, [
     page,
     filter,
     searchText,
     merchantText,
+    accountFilterIds,
     categoryFilterIds,
     startDate,
     endDate,
@@ -503,7 +542,10 @@ export default function TransactionsPage() {
   );
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(() => {
+      load();
+    }, 200);
+    return () => clearTimeout(timer);
   }, [load]);
 
   useEffect(() => {
@@ -528,6 +570,8 @@ export default function TransactionsPage() {
         setFilter("all");
         setSearchText("");
         setMerchantText("");
+        setAccountFilterIds([]);
+        setAccountFilterSearch("");
         setCategoryFilterIds([]);
         setCategoryFilterSearch("");
         setTransactionKindFilter("");
@@ -540,8 +584,8 @@ export default function TransactionsPage() {
         setIncomeMax(null);
         setExpenseMinAbs(null);
         setExpenseMaxAbs(null);
-        setStartDate(addDays(txn.date, -30));
-        setEndDate(addDays(txn.date, 30));
+        setStartDate(addDays(txn.date, -14));
+        setEndDate(addDays(txn.date, 14));
         setPage(1);
         setFocusPreparedForId(focusTxnId);
       })
@@ -570,6 +614,76 @@ export default function TransactionsPage() {
     api.getTrips().then(setTrips).catch(() => setTrips([]));
   }, []);
 
+  const loadDuplicateReview = useCallback(async () => {
+    const items = await api.getPotentialDuplicates({
+      limit: 250,
+      person_id: selectedPersonId ?? undefined,
+    });
+    setDuplicateCandidates(items);
+    setDuplicateAlertCount(items.length);
+    const ids = Array.from(
+      new Set(items.flatMap((item) => [item.transaction_id, item.candidate_id]))
+    );
+    if (ids.length === 0) {
+      setDuplicateTxnById({});
+      return;
+    }
+    const details = await Promise.all(
+      ids.map(async (id) => {
+        const txn = await api.getTransaction(id);
+        return [id, txn] as const;
+      })
+    );
+    setDuplicateTxnById(Object.fromEntries(details));
+  }, [selectedPersonId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      api.getTransferCandidates({
+        limit: 25,
+        seed_limit: 400,
+        max_results: 25,
+        person_id: selectedPersonId ?? undefined,
+      }),
+      api.getPotentialDuplicates({
+        limit: 250,
+        person_id: selectedPersonId ?? undefined,
+      }),
+    ])
+      .then(([transferItems, duplicateItems]) => {
+        if (cancelled) return;
+        setTransferAlertCount(transferItems.length);
+        setDuplicateAlertCount(duplicateItems.length);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTransferAlertCount(0);
+        setDuplicateAlertCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPersonId]);
+
+  useEffect(() => {
+    if (activeTab !== "duplicates") return;
+    let cancelled = false;
+    loadDuplicateReview()
+      .then(() => {
+        if (cancelled) return;
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDuplicateCandidates([]);
+          setDuplicateTxnById({});
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, loadDuplicateReview]);
+
   useEffect(() => {
     api.getAccounts().then((accs) => {
       setAccounts(accs);
@@ -587,12 +701,12 @@ export default function TransactionsPage() {
         setBounds(b);
         if (!startDate && b.min_date) setStartDate(b.min_date);
         if (!endDate && b.max_date) setEndDate(b.max_date);
-        if (minAmount === null && b.min_amount !== null) setMinAmount(b.min_amount);
-        if (maxAmount === null && b.max_amount !== null) setMaxAmount(b.max_amount);
-        if (incomeMin === null && b.income_min !== null) setIncomeMin(b.income_min);
-        if (incomeMax === null && b.income_max !== null) setIncomeMax(b.income_max);
-        if (expenseMinAbs === null && b.expense_min_abs !== null) setExpenseMinAbs(b.expense_min_abs);
-        if (expenseMaxAbs === null && b.expense_max_abs !== null) setExpenseMaxAbs(b.expense_max_abs);
+        if (minAmount === null && b.min_amount !== null) setMinAmount(roundMoney(b.min_amount));
+        if (maxAmount === null && b.max_amount !== null) setMaxAmount(roundMoney(b.max_amount));
+        if (incomeMin === null && b.income_min !== null) setIncomeMin(roundMoney(b.income_min));
+        if (incomeMax === null && b.income_max !== null) setIncomeMax(roundMoney(b.income_max));
+        if (expenseMinAbs === null && b.expense_min_abs !== null) setExpenseMinAbs(roundMoney(b.expense_min_abs));
+        if (expenseMaxAbs === null && b.expense_max_abs !== null) setExpenseMaxAbs(roundMoney(b.expense_max_abs));
       })
       .catch(() => setBounds(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -724,6 +838,8 @@ export default function TransactionsPage() {
   const resetFilters = () => {
     setSearchText("");
     setMerchantText("");
+    setAccountFilterIds([]);
+    setAccountFilterSearch("");
     setCategoryFilterIds([]);
     setCategoryFilterSearch("");
     setTransactionKindFilter("");
@@ -732,12 +848,12 @@ export default function TransactionsPage() {
     setEndDate(bounds?.max_date ?? "");
     setTripFilterId("");
     setAmountFilterMode("any");
-    setMinAmount(bounds?.min_amount ?? null);
-    setMaxAmount(bounds?.max_amount ?? null);
-    setIncomeMin(bounds?.income_min ?? null);
-    setIncomeMax(bounds?.income_max ?? null);
-    setExpenseMinAbs(bounds?.expense_min_abs ?? null);
-    setExpenseMaxAbs(bounds?.expense_max_abs ?? null);
+    setMinAmount(bounds?.min_amount !== null && bounds?.min_amount !== undefined ? roundMoney(bounds.min_amount) : null);
+    setMaxAmount(bounds?.max_amount !== null && bounds?.max_amount !== undefined ? roundMoney(bounds.max_amount) : null);
+    setIncomeMin(bounds?.income_min !== null && bounds?.income_min !== undefined ? roundMoney(bounds.income_min) : null);
+    setIncomeMax(bounds?.income_max !== null && bounds?.income_max !== undefined ? roundMoney(bounds.income_max) : null);
+    setExpenseMinAbs(bounds?.expense_min_abs !== null && bounds?.expense_min_abs !== undefined ? roundMoney(bounds.expense_min_abs) : null);
+    setExpenseMaxAbs(bounds?.expense_max_abs !== null && bounds?.expense_max_abs !== undefined ? roundMoney(bounds.expense_max_abs) : null);
     setPage(1);
     if (Number.isFinite(focusTxnId)) {
       const next = new URLSearchParams(searchParams);
@@ -765,6 +881,7 @@ export default function TransactionsPage() {
     let n = 0;
     if (searchText.trim()) n += 1;
     if (merchantText.trim()) n += 1;
+    if (accountFilterIds.length) n += 1;
     if (categoryFilterIds.length) n += 1;
     if (transactionKindFilter) n += 1;
     if (!includeTransfers) n += 1;
@@ -808,6 +925,56 @@ export default function TransactionsPage() {
   const isFocusedTxnVisible =
     Number.isFinite(focusTxnId) &&
     !!data?.items?.some((item) => item.id === focusTxnId);
+  const renderAlertLabel = (text: string, count: number) => {
+    if (count <= 0) return text;
+    const textCount = `${count}${count >= 25 ? "+" : ""}`;
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span>{text}</span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-1.5 py-0.5 text-[11px] text-destructive">
+          <AlertCircle className="h-3 w-3" />
+          {textCount}
+        </span>
+      </span>
+    );
+  };
+  const tabOptions: { value: "transactions" | "transfers" | "duplicates"; label: ReactNode }[] = [
+    { value: "transactions", label: "Transactions" },
+    {
+      value: "transfers",
+      label: renderAlertLabel("Transfer Review", transferAlertCount),
+    },
+    {
+      value: "duplicates",
+      label: renderAlertLabel("Duplicates", duplicateAlertCount),
+    },
+  ];
+  const duplicateGrouped = useMemo(() => {
+    const bySource = new Map<number, ExistingDuplicateCandidate[]>();
+    for (const item of duplicateCandidates) {
+      const list = bySource.get(item.transaction_id) ?? [];
+      list.push(item);
+      bySource.set(item.transaction_id, list);
+    }
+    return Array.from(bySource.entries())
+      .map(([sourceId, candidates]) => ({
+        sourceId,
+        candidates: candidates.sort((a, b) => b.rating - a.rating),
+      }))
+      .sort((a, b) => (b.candidates[0]?.rating ?? 0) - (a.candidates[0]?.rating ?? 0));
+  }, [duplicateCandidates]);
+  const selectedDuplicateFor = (sourceId: number, list: ExistingDuplicateCandidate[]) => {
+    const idx = duplicateActiveBySourceId[sourceId] ?? 0;
+    if (idx < 0 || idx >= list.length) return list[0];
+    return list[idx];
+  };
+  const handleTabChange = (next: "transactions" | "transfers" | "duplicates") => {
+    if (next === "transactions") {
+      setSearchParams({});
+      return;
+    }
+    setSearchParams({ tab: next });
+  };
 
   if (activeTab === "transfers") {
     return (
@@ -815,11 +982,8 @@ export default function TransactionsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Tabs
             value={activeTab}
-            onChange={(next) => setSearchParams(next === "transfers" ? { tab: "transfers" } : {})}
-            options={[
-              { value: "transactions", label: "Transactions" },
-              { value: "transfers", label: "Transfer Review" },
-            ]}
+            onChange={handleTabChange}
+            options={tabOptions}
           />
           <Link to="/import">
             <Button variant="outline">Import Data</Button>
@@ -830,16 +994,158 @@ export default function TransactionsPage() {
     );
   }
 
+  if (activeTab === "duplicates") {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Tabs
+            value={activeTab}
+            onChange={handleTabChange}
+            options={tabOptions}
+          />
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                loadDuplicateReview().catch(() => {
+                  setDuplicateCandidates([]);
+                  setDuplicateTxnById({});
+                });
+              }}
+            >
+              Refresh
+            </Button>
+            <Link to="/import">
+              <Button variant="outline">Import Data</Button>
+            </Link>
+          </div>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Potential duplicates ({duplicateCandidates.length} pairs / {duplicateGrouped.length} source transactions)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {duplicateGrouped.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No potential duplicates found.</p>
+            ) : (
+              <div className="space-y-2">
+                {duplicateGrouped.map((group) => {
+                  const active = selectedDuplicateFor(group.sourceId, group.candidates);
+                  const activeIdx = group.candidates.findIndex((item) => item.candidate_id === active.candidate_id);
+                  const sourceTxn = duplicateTxnById[active.transaction_id];
+                  const candidateTxn = duplicateTxnById[active.candidate_id];
+                  return (
+                    <div key={group.sourceId} className="rounded-md border border-border p-3 space-y-3 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          Source #{group.sourceId} · {group.candidates.length} candidates
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={activeIdx <= 0}
+                            onClick={() =>
+                              setDuplicateActiveBySourceId((prev) => ({
+                                ...prev,
+                                [group.sourceId]: activeIdx - 1,
+                              }))
+                            }
+                          >
+                            Prev
+                          </Button>
+                          <span className="text-xs text-muted-foreground">
+                            {Math.max(activeIdx + 1, 1)} / {group.candidates.length}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={activeIdx >= group.candidates.length - 1}
+                            onClick={() =>
+                              setDuplicateActiveBySourceId((prev) => ({
+                                ...prev,
+                                [group.sourceId]: activeIdx + 1,
+                              }))
+                            }
+                          >
+                            Next
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {sourceTxn ? (
+                          <TransactionComparisonPane
+                            transactionId={sourceTxn.id}
+                            title={`Source #${sourceTxn.id}`}
+                            date={sourceTxn.date}
+                            amount={sourceTxn.amount}
+                            merchant={sourceTxn.merchant}
+                            description={sourceTxn.description}
+                            rawDescription={sourceTxn.raw_description}
+                            currency={sourceTxn.currency}
+                            kind={sourceTxn.transaction_kind}
+                            isInternalTransfer={sourceTxn.is_internal_transfer}
+                            transferGroupId={sourceTxn.transfer_group_id}
+                            disabled={false}
+                            onChanged={async () => {
+                              await loadDuplicateReview();
+                            }}
+                          />
+                        ) : (
+                          <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">
+                            Loading source transaction...
+                          </div>
+                        )}
+                        {candidateTxn ? (
+                          <TransactionComparisonPane
+                            transactionId={candidateTxn.id}
+                            title={`Candidate #${candidateTxn.id}`}
+                            date={candidateTxn.date}
+                            amount={candidateTxn.amount}
+                            merchant={candidateTxn.merchant}
+                            description={candidateTxn.description}
+                            rawDescription={candidateTxn.raw_description}
+                            currency={candidateTxn.currency}
+                            kind={candidateTxn.transaction_kind}
+                            isInternalTransfer={candidateTxn.is_internal_transfer}
+                            transferGroupId={candidateTxn.transfer_group_id}
+                            disabled={false}
+                            onChanged={async () => {
+                              await loadDuplicateReview();
+                            }}
+                          />
+                        ) : (
+                          <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">
+                            Loading candidate transaction...
+                          </div>
+                        )}
+                      </div>
+                      <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm">
+                        <Badge variant={active.rating >= 0.9 ? "warning" : "secondary"}>
+                          {(active.rating * 100).toFixed(0)}%
+                        </Badge>
+                        <span className="ml-2 text-muted-foreground">{active.reason}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs
           value={activeTab}
-          onChange={(next) => setSearchParams(next === "transfers" ? { tab: "transfers" } : {})}
-          options={[
-            { value: "transactions", label: "Transactions" },
-            { value: "transfers", label: "Transfer Review" },
-          ]}
+          onChange={handleTabChange}
+          options={tabOptions}
         />
         <Link to="/import">
           <Button variant="outline">Import Data</Button>
@@ -933,6 +1239,16 @@ export default function TransactionsPage() {
                   )}
                 </>
               )}
+              {!filtersOpen && selectedAccountNames.length > 0 && (
+                <>
+                  {selectedAccountNames.slice(0, 2).map((name, idx) => (
+                    <Badge key={`acct-${name}-${idx}`} variant="outline">{name}</Badge>
+                  ))}
+                  {selectedAccountNames.length > 2 && (
+                    <Badge variant="outline">+{selectedAccountNames.length - 2}</Badge>
+                  )}
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {!filtersOpen && activeFilterCount > 0 && (
@@ -972,7 +1288,8 @@ export default function TransactionsPage() {
                   setSearchText(e.target.value);
                   setPage(1);
                 }}
-                placeholder="merchant/description…"
+                placeholder="merchant/description… + AND | OR () groups"
+                title="Use + for AND, | for OR, () for grouping. Example: (REWE|Lidl)+Groceries"
               />
             </div>
             <div>
@@ -985,6 +1302,19 @@ export default function TransactionsPage() {
                   setPage(1);
                 }}
                 placeholder="REWE, Spotify…"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-sm text-muted-foreground">Account</label>
+              <AccountMultiDropdown
+                accounts={accounts}
+                selectedIds={accountFilterIds}
+                search={accountFilterSearch}
+                onSearchChange={setAccountFilterSearch}
+                onChange={(ids) => {
+                  setAccountFilterIds(ids);
+                  setPage(1);
+                }}
               />
             </div>
             <div className="md:col-span-2">
@@ -1104,18 +1434,62 @@ export default function TransactionsPage() {
                   <DoubleRangeSlider
                     min={bounds!.min_amount!}
                     max={bounds!.max_amount!}
-                    step={0.01}
+                    step={1}
                     minValue={minAmount ?? bounds!.min_amount!}
                     maxValue={maxAmount ?? bounds!.max_amount!}
                     onChange={(nextMin, nextMax) => {
-                      setMinAmount(nextMin);
-                      setMaxAmount(nextMax);
+                      setMinAmount(roundMoney(nextMin));
+                      setMaxAmount(roundMoney(nextMax));
                       setPage(1);
                     }}
                   />
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Min: {formatCurrency(minAmount ?? 0)}</span>
-                    <span>Max: {formatCurrency(maxAmount ?? 0)}</span>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <label className="text-xs text-muted-foreground">
+                      Min
+                      <input
+                        type="number"
+                        step={1}
+                        className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                        value={minAmount ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            setMinAmount(null);
+                            setPage(1);
+                            return;
+                          }
+                          const parsed = Number(raw);
+                          if (Number.isNaN(parsed)) return;
+                          const lower = bounds!.min_amount!;
+                          const upper = maxAmount ?? bounds!.max_amount!;
+                          setMinAmount(clampNumber(parsed, lower, upper));
+                          setPage(1);
+                        }}
+                      />
+                    </label>
+                    <label className="text-xs text-muted-foreground">
+                      Max
+                      <input
+                        type="number"
+                        step={1}
+                        className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                        value={maxAmount ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            setMaxAmount(null);
+                            setPage(1);
+                            return;
+                          }
+                          const parsed = Number(raw);
+                          if (Number.isNaN(parsed)) return;
+                          const lower = minAmount ?? bounds!.min_amount!;
+                          const upper = bounds!.max_amount!;
+                          setMaxAmount(clampNumber(parsed, lower, upper));
+                          setPage(1);
+                        }}
+                      />
+                    </label>
                   </div>
                 </div>
               ) : null}
@@ -1125,18 +1499,62 @@ export default function TransactionsPage() {
                   <DoubleRangeSlider
                     min={bounds!.income_min!}
                     max={bounds!.income_max!}
-                    step={0.01}
+                    step={1}
                     minValue={incomeMin ?? bounds!.income_min!}
                     maxValue={incomeMax ?? bounds!.income_max!}
                     onChange={(nextMin, nextMax) => {
-                      setIncomeMin(nextMin);
-                      setIncomeMax(nextMax);
+                      setIncomeMin(roundMoney(nextMin));
+                      setIncomeMax(roundMoney(nextMax));
                       setPage(1);
                     }}
                   />
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Income min: {formatCurrency(incomeMin ?? 0)}</span>
-                    <span>Income max: {formatCurrency(incomeMax ?? 0)}</span>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <label className="text-xs text-muted-foreground">
+                      Income min
+                      <input
+                        type="number"
+                        step={1}
+                        className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                        value={incomeMin ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            setIncomeMin(null);
+                            setPage(1);
+                            return;
+                          }
+                          const parsed = Number(raw);
+                          if (Number.isNaN(parsed)) return;
+                          const lower = bounds!.income_min!;
+                          const upper = incomeMax ?? bounds!.income_max!;
+                          setIncomeMin(clampNumber(parsed, lower, upper));
+                          setPage(1);
+                        }}
+                      />
+                    </label>
+                    <label className="text-xs text-muted-foreground">
+                      Income max
+                      <input
+                        type="number"
+                        step={1}
+                        className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                        value={incomeMax ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            setIncomeMax(null);
+                            setPage(1);
+                            return;
+                          }
+                          const parsed = Number(raw);
+                          if (Number.isNaN(parsed)) return;
+                          const lower = incomeMin ?? bounds!.income_min!;
+                          const upper = bounds!.income_max!;
+                          setIncomeMax(clampNumber(parsed, lower, upper));
+                          setPage(1);
+                        }}
+                      />
+                    </label>
                   </div>
                 </div>
               ) : null}
@@ -1146,18 +1564,62 @@ export default function TransactionsPage() {
                   <DoubleRangeSlider
                     min={bounds!.expense_min_abs!}
                     max={bounds!.expense_max_abs!}
-                    step={0.01}
+                    step={1}
                     minValue={expenseMinAbs ?? bounds!.expense_min_abs!}
                     maxValue={expenseMaxAbs ?? bounds!.expense_max_abs!}
                     onChange={(nextMin, nextMax) => {
-                      setExpenseMinAbs(nextMin);
-                      setExpenseMaxAbs(nextMax);
+                      setExpenseMinAbs(roundMoney(nextMin));
+                      setExpenseMaxAbs(roundMoney(nextMax));
                       setPage(1);
                     }}
                   />
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Expense min: {formatCurrency(expenseMinAbs ?? 0)}</span>
-                    <span>Expense max: {formatCurrency(expenseMaxAbs ?? 0)}</span>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <label className="text-xs text-muted-foreground">
+                      Expense min
+                      <input
+                        type="number"
+                        step={1}
+                        className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                        value={expenseMinAbs ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            setExpenseMinAbs(null);
+                            setPage(1);
+                            return;
+                          }
+                          const parsed = Number(raw);
+                          if (Number.isNaN(parsed)) return;
+                          const lower = bounds!.expense_min_abs!;
+                          const upper = expenseMaxAbs ?? bounds!.expense_max_abs!;
+                          setExpenseMinAbs(clampNumber(parsed, lower, upper));
+                          setPage(1);
+                        }}
+                      />
+                    </label>
+                    <label className="text-xs text-muted-foreground">
+                      Expense max
+                      <input
+                        type="number"
+                        step={1}
+                        className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                        value={expenseMaxAbs ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            setExpenseMaxAbs(null);
+                            setPage(1);
+                            return;
+                          }
+                          const parsed = Number(raw);
+                          if (Number.isNaN(parsed)) return;
+                          const lower = expenseMinAbs ?? bounds!.expense_min_abs!;
+                          const upper = bounds!.expense_max_abs!;
+                          setExpenseMaxAbs(clampNumber(parsed, lower, upper));
+                          setPage(1);
+                        }}
+                      />
+                    </label>
                   </div>
                 </div>
               ) : null}
@@ -1169,18 +1631,62 @@ export default function TransactionsPage() {
                     <DoubleRangeSlider
                       min={bounds!.income_min!}
                       max={bounds!.income_max!}
-                      step={0.01}
+                      step={1}
                       minValue={incomeMin ?? bounds!.income_min!}
                       maxValue={incomeMax ?? bounds!.income_max!}
                       onChange={(nextMin, nextMax) => {
-                        setIncomeMin(nextMin);
-                        setIncomeMax(nextMax);
+                        setIncomeMin(roundMoney(nextMin));
+                        setIncomeMax(roundMoney(nextMax));
                         setPage(1);
                       }}
                     />
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Min: {formatCurrency(incomeMin ?? 0)}</span>
-                      <span>Max: {formatCurrency(incomeMax ?? 0)}</span>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <label className="text-xs text-muted-foreground">
+                        Min
+                        <input
+                          type="number"
+                          step={1}
+                          className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                          value={incomeMin ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setIncomeMin(null);
+                              setPage(1);
+                              return;
+                            }
+                            const parsed = Number(raw);
+                            if (Number.isNaN(parsed)) return;
+                            const lower = bounds!.income_min!;
+                            const upper = incomeMax ?? bounds!.income_max!;
+                            setIncomeMin(clampNumber(parsed, lower, upper));
+                            setPage(1);
+                          }}
+                        />
+                      </label>
+                      <label className="text-xs text-muted-foreground">
+                        Max
+                        <input
+                          type="number"
+                          step={1}
+                          className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                          value={incomeMax ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setIncomeMax(null);
+                              setPage(1);
+                              return;
+                            }
+                            const parsed = Number(raw);
+                            if (Number.isNaN(parsed)) return;
+                            const lower = incomeMin ?? bounds!.income_min!;
+                            const upper = bounds!.income_max!;
+                            setIncomeMax(clampNumber(parsed, lower, upper));
+                            setPage(1);
+                          }}
+                        />
+                      </label>
                     </div>
                   </div>
                   <div className="space-y-2 rounded-md border border-border p-2">
@@ -1188,18 +1694,62 @@ export default function TransactionsPage() {
                     <DoubleRangeSlider
                       min={bounds!.expense_min_abs!}
                       max={bounds!.expense_max_abs!}
-                      step={0.01}
+                      step={1}
                       minValue={expenseMinAbs ?? bounds!.expense_min_abs!}
                       maxValue={expenseMaxAbs ?? bounds!.expense_max_abs!}
                       onChange={(nextMin, nextMax) => {
-                        setExpenseMinAbs(nextMin);
-                        setExpenseMaxAbs(nextMax);
+                        setExpenseMinAbs(roundMoney(nextMin));
+                        setExpenseMaxAbs(roundMoney(nextMax));
                         setPage(1);
                       }}
                     />
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Min: {formatCurrency(expenseMinAbs ?? 0)}</span>
-                      <span>Max: {formatCurrency(expenseMaxAbs ?? 0)}</span>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <label className="text-xs text-muted-foreground">
+                        Min
+                        <input
+                          type="number"
+                          step={1}
+                          className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                          value={expenseMinAbs ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setExpenseMinAbs(null);
+                              setPage(1);
+                              return;
+                            }
+                            const parsed = Number(raw);
+                            if (Number.isNaN(parsed)) return;
+                            const lower = bounds!.expense_min_abs!;
+                            const upper = expenseMaxAbs ?? bounds!.expense_max_abs!;
+                            setExpenseMinAbs(clampNumber(parsed, lower, upper));
+                            setPage(1);
+                          }}
+                        />
+                      </label>
+                      <label className="text-xs text-muted-foreground">
+                        Max
+                        <input
+                          type="number"
+                          step={1}
+                          className="mt-1 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                          value={expenseMaxAbs ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setExpenseMaxAbs(null);
+                              setPage(1);
+                              return;
+                            }
+                            const parsed = Number(raw);
+                            if (Number.isNaN(parsed)) return;
+                            const lower = expenseMinAbs ?? bounds!.expense_min_abs!;
+                            const upper = bounds!.expense_max_abs!;
+                            setExpenseMaxAbs(clampNumber(parsed, lower, upper));
+                            setPage(1);
+                          }}
+                        />
+                      </label>
                     </div>
                   </div>
                 </div>

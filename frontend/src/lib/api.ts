@@ -256,6 +256,35 @@ export interface ImportResult {
   transactions_imported: number;
   duplicates_skipped: number;
   account_id: number;
+  potential_duplicates: PotentialDuplicate[];
+  duplicate_overrides_applied: number;
+}
+
+export interface PotentialDuplicate {
+  duplicate_key: string;
+  rating: number;
+  reason: string;
+  existing_transaction_id: number;
+  incoming_date: string;
+  incoming_amount: number;
+  incoming_currency: string;
+  incoming_merchant: string;
+  incoming_description: string;
+  incoming_raw_description: string;
+  existing_date: string;
+  existing_amount: number;
+  existing_currency: string;
+  existing_merchant: string;
+  existing_description: string;
+  existing_raw_description: string;
+}
+
+export interface ExistingDuplicateCandidate {
+  transaction_id: number;
+  candidate_id: number;
+  account_id: number;
+  rating: number;
+  reason: string;
 }
 
 export interface Dashboard {
@@ -623,6 +652,7 @@ export const api = {
     page_size?: number;
     transaction_id?: number;
     account_id?: number;
+    account_ids?: number[];
     person_id?: number;
     classified?: boolean;
     q?: string;
@@ -651,6 +681,8 @@ export const api = {
       searchParams.set("transaction_id", String(params.transaction_id));
     if (params.account_id)
       searchParams.set("account_id", String(params.account_id));
+    if (params.account_ids?.length)
+      searchParams.set("account_ids", params.account_ids.join(","));
     if (params.person_id)
       searchParams.set("person_id", String(params.person_id));
     if (params.classified !== undefined)
@@ -719,6 +751,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  getTransaction: (id: number) => request<Transaction>(`/transactions/${id}`),
   updateTransaction: (id: number, payload: TransactionUpdate) =>
     request<Transaction>(`/transactions/${id}`, {
       method: "PATCH",
@@ -786,10 +819,14 @@ export const api = {
   uploadFile: async (
     file: File,
     accountId: number,
-    importProfileId?: number | null
+    importProfileId?: number | null,
+    duplicateOverrideKeys?: string[]
   ): Promise<ImportResult> => {
     const form = new FormData();
     form.append("file", file);
+    if (duplicateOverrideKeys?.length) {
+      form.append("duplicate_override_keys_json", JSON.stringify(duplicateOverrideKeys));
+    }
     const qs = new URLSearchParams();
     qs.set("account_id", String(accountId));
     if (importProfileId) qs.set("import_profile_id", String(importProfileId));
@@ -802,6 +839,14 @@ export const api = {
       throw new Error(body.detail || "Upload failed");
     }
     return res.json();
+  },
+  getPotentialDuplicates: (params?: { account_id?: number; person_id?: number; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.account_id) qs.set("account_id", String(params.account_id));
+    if (params?.person_id) qs.set("person_id", String(params.person_id));
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<ExistingDuplicateCandidate[]>(`/transactions/potential-duplicates${suffix}`);
   },
 
   getImportProfiles: () => request<ImportProfile[]>("/import-profiles/"),

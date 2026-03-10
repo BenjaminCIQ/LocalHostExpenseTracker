@@ -71,12 +71,41 @@ class TransactionListResponse(BaseModel):
     total_pages: int
 
 
+class PotentialDuplicateRead(BaseModel):
+    duplicate_key: str
+    rating: float
+    reason: str
+    existing_transaction_id: int
+    incoming_date: str
+    incoming_amount: float
+    incoming_currency: str
+    incoming_merchant: str
+    incoming_description: str
+    incoming_raw_description: str
+    existing_date: str
+    existing_amount: float
+    existing_currency: str
+    existing_merchant: str
+    existing_description: str
+    existing_raw_description: str
+
+
 class ImportResult(BaseModel):
     batch_id: int
     filename: str
     transactions_imported: int
     duplicates_skipped: int
     account_id: int
+    potential_duplicates: list[PotentialDuplicateRead] = Field(default_factory=list)
+    duplicate_overrides_applied: int = 0
+
+
+class ExistingDuplicateCandidateRead(BaseModel):
+    transaction_id: int
+    candidate_id: int
+    account_id: int
+    rating: float
+    reason: str
 
 
 class SimilarTransactionCandidate(BaseModel):

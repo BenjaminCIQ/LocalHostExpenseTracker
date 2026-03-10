@@ -9,6 +9,7 @@ from app.models.external_account import (
     ExternalFundingLink,
     ExternalValuationSnapshot,
 )
+from app.models.duplicate_override import DuplicateOverride
 from app.models.import_batch import ImportBatch
 from app.models.import_profile import ImportProfile
 from app.models.merchant_memory import MerchantAlias, MerchantCategoryStats
@@ -31,6 +32,7 @@ __all__ = [
     "ExternalAccount",
     "ExternalFundingLink",
     "ExternalValuationSnapshot",
+    "DuplicateOverride",
     "ImportBatch",
     "ImportProfile",
     "MerchantAlias",

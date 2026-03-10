@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Upload, CheckCircle, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { api, type Account, type ImportProfile, type ImportResult } from "@/lib/api";
+import { api, type Account, type ImportProfile, type ImportResult, type PotentialDuplicate } from "@/lib/api";
 
 export default function UploadPage({ embedded = false }: { embedded?: boolean }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -12,6 +12,8 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [lastFile, setLastFile] = useState<File | null>(null);
+  const [selectedDuplicateKeys, setSelectedDuplicateKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -33,7 +35,9 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
       setResult(null);
       try {
         const res = await api.uploadFile(file, selectedAccount, selectedProfile);
+        setLastFile(file);
         setResult(res);
+        setSelectedDuplicateKeys(new Set(res.potential_duplicates.map((d) => d.duplicate_key)));
       } catch (e) {
         setError(e instanceof Error ? e.message : "Upload failed");
       } finally {
@@ -42,6 +46,35 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
     },
     [selectedAccount, selectedProfile]
   );
+
+  const importSelectedDuplicates = useCallback(async () => {
+    if (!selectedAccount || !lastFile || selectedDuplicateKeys.size === 0) return;
+    setUploading(true);
+    setError("");
+    try {
+      const res = await api.uploadFile(
+        lastFile,
+        selectedAccount,
+        selectedProfile,
+        Array.from(selectedDuplicateKeys)
+      );
+      setResult(res);
+      setSelectedDuplicateKeys(new Set(res.potential_duplicates.map((d) => d.duplicate_key)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Duplicate override import failed");
+    } finally {
+      setUploading(false);
+    }
+  }, [lastFile, selectedAccount, selectedDuplicateKeys, selectedProfile]);
+
+  function toggleDup(item: PotentialDuplicate) {
+    setSelectedDuplicateKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(item.duplicate_key)) next.delete(item.duplicate_key);
+      else next.add(item.duplicate_key);
+      return next;
+    });
+  }
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -190,8 +223,55 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
                       ({result.duplicates_skipped} duplicates skipped)
                     </span>
                   )}
+                  {result.duplicate_overrides_applied > 0 && (
+                    <span> · {result.duplicate_overrides_applied} duplicate overrides applied</span>
+                  )}
                 </p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {result && result.potential_duplicates.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Potential duplicates ({result.potential_duplicates.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              These rows were skipped to avoid duplicate imports. Select any that are true positives to include anyway.
+            </p>
+            <div className="max-h-80 overflow-auto space-y-2">
+              {result.potential_duplicates.map((dup) => (
+                <label key={dup.duplicate_key} className="flex gap-3 rounded-md border border-border p-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedDuplicateKeys.has(dup.duplicate_key)}
+                    onChange={() => toggleDup(dup)}
+                  />
+                  <div className="space-y-1">
+                    <div>
+                      <span className="font-medium">Rating {(dup.rating * 100).toFixed(0)}%</span>
+                      <span className="text-muted-foreground"> · {dup.reason}</span>
+                    </div>
+                    <div className="text-xs">
+                      Incoming: {dup.incoming_date} · {dup.incoming_amount.toFixed(2)} {dup.incoming_currency} · {dup.incoming_merchant || dup.incoming_description}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Existing #{dup.existing_transaction_id}: {dup.existing_date} · {dup.existing_amount.toFixed(2)} {dup.existing_currency} · {dup.existing_merchant || dup.existing_description}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <Button
+                onClick={() => void importSelectedDuplicates()}
+                disabled={uploading || selectedDuplicateKeys.size === 0 || !lastFile}
+              >
+                Import selected duplicates anyway
+              </Button>
             </div>
           </CardContent>
         </Card>

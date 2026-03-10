@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 type TabOption<T extends string> = {
   value: T;
-  label: string;
+  label: ReactNode;
 };
 
 export function Tabs<T extends string>({
