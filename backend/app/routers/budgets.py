@@ -62,12 +62,13 @@ def budget_status(db: Session = Depends(get_db)):
     budgets = db.query(Budget).filter(Budget.is_active.is_(True)).all()
     out: list[BudgetStatus] = []
     for budget in budgets:
-        tx_query = db.query(Transaction).filter(Transaction.amount < 0)
+        tx_query = db.query(Transaction).filter(Transaction.is_deleted.is_(False))
         if budget.period == "monthly":
             tx_query = tx_query.filter(Transaction.date >= month_start, Transaction.date <= today)
         if budget.category_id is not None:
             tx_query = tx_query.filter(Transaction.final_category_id == budget.category_id)
-        spent = float(tx_query.with_entities(func.coalesce(func.sum(-Transaction.amount), 0.0)).scalar() or 0.0)
+        net = float(tx_query.with_entities(func.coalesce(func.sum(Transaction.amount), 0.0)).scalar() or 0.0)
+        spent = max(0.0, -net)
         limit = float(budget.amount_limit)
         ratio = spent / limit if limit > 0 else 0.0
         category_name = None

@@ -80,6 +80,8 @@ def timeseries(
     granularity: str = Query("monthly", pattern="^(daily|weekly|monthly|quarterly|yearly)$"),
     db: Session = Depends(get_db),
 ):
+    # When viewing a single account, include transfers by default so outflows/inflows are visible.
+    default_transfers = account_id is not None
     filters = AnalyticsFilters(
         start_date=start_date,
         end_date=end_date,
@@ -87,7 +89,7 @@ def timeseries(
         person_id=person_id,
         category_ids=_parse_category_ids(category_ids),
         merchant_names=_parse_string_list(merchant_names),
-        include_transfers=include_transfers if include_transfers is not None else False,
+        include_transfers=include_transfers if include_transfers is not None else default_transfers,
         trip_id=trip_id,
         exclude_trip_included=exclude_trip_included,
         excluded_trip_ids=_parse_int_list(excluded_trip_ids),

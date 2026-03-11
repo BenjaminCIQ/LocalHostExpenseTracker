@@ -1,6 +1,7 @@
 from datetime import date
 
 from app.models.account import Account
+from app.models.category import Category
 from app.models.person import Person
 from app.models.transaction import Transaction
 
@@ -51,6 +52,9 @@ def test_person_filter_on_transactions_and_dashboard(client, seeded_db):
     seeded_db.add_all([a1, a2])
     seeded_db.flush()
 
+    expense_cat = seeded_db.query(Category).filter(Category.name == "Groceries").first()
+    assert expense_cat is not None
+
     seeded_db.add_all(
         [
             Transaction(
@@ -63,6 +67,7 @@ def test_person_filter_on_transactions_and_dashboard(client, seeded_db):
                 merchant="M",
                 currency="EUR",
                 dedup_hash="a1",
+                final_category_id=expense_cat.id,
             ),
             Transaction(
                 account_id=a2.id,
@@ -74,6 +79,7 @@ def test_person_filter_on_transactions_and_dashboard(client, seeded_db):
                 merchant="M",
                 currency="EUR",
                 dedup_hash="b1",
+                final_category_id=expense_cat.id,
             ),
         ]
     )

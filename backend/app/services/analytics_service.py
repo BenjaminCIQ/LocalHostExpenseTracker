@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from statistics import median
 
-from sqlalchemy import Integer, and_, case, func, or_
+from sqlalchemy import Integer, and_, func, or_
 from sqlalchemy.orm import Query, Session
 
 from app.models.account import Account
@@ -180,6 +180,27 @@ def _period_expr(granularity: str):
     return func.strftime("%Y-%m", Transaction.date)
 
 
+def _income_expense_from_categories(q: Query) -> tuple[float, float]:
+    """Returns (total_income, total_expense) using Category.is_income, not amount sign.
+    Only categorized transactions count. Expense is returned as a positive number for display."""
+    income_val = (
+        q.join(Category, Transaction.final_category_id == Category.id)
+        .filter(Category.is_income.is_(True))
+        .with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
+        .scalar()
+    )
+    expense_val = (
+        q.join(Category, Transaction.final_category_id == Category.id)
+        .filter(Category.is_income.is_(False))
+        .with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
+        .scalar()
+    )
+    income = float(income_val or 0.0)
+    expense_net = float(expense_val or 0.0)  # negative = spending
+    expense_display = max(0.0, -expense_net)
+    return income, expense_display
+
+
 def get_timeseries(
     db: Session,
     filters: AnalyticsFilters,
@@ -188,16 +209,22 @@ def get_timeseries(
     base_query = build_filtered_query(db, filters)
     period = _period_expr(granularity).label("period")
 
-    rows = (
-        base_query.with_entities(
-            period,
-            func.coalesce(func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0.0)), 0.0).label("income"),
-            func.coalesce(func.sum(case((Transaction.amount < 0, -Transaction.amount), else_=0.0)), 0.0).label("expenses"),
-        )
+    income_rows = (
+        base_query.join(Category, Transaction.final_category_id == Category.id)
+        .filter(Category.is_income.is_(True))
+        .with_entities(period, func.coalesce(func.sum(Transaction.amount), 0.0).label("income"))
         .group_by(period)
-        .order_by(period.asc())
         .all()
     )
+    expense_rows = (
+        base_query.join(Category, Transaction.final_category_id == Category.id)
+        .filter(Category.is_income.is_(False))
+        .with_entities(period, func.coalesce(func.sum(Transaction.amount), 0.0).label("expense_net"))
+        .group_by(period)
+        .all()
+    )
+    income_by_period = {str(p): float(val) for p, val in income_rows}
+    expense_net_by_period = {str(p): float(val) for p, val in expense_rows}
 
     category_rows = (
         base_query.join(Category, Transaction.final_category_id == Category.id, isouter=True)
@@ -223,17 +250,19 @@ def get_timeseries(
             }
         )
 
+    all_periods = sorted(set(income_by_period) | set(expense_net_by_period) | set(categories_by_period))
     out: list[dict] = []
-    for p, income, expenses in rows:
-        income_f = round(float(income), 2)
-        expenses_f = round(float(expenses), 2)
+    for p in all_periods:
+        income_f = round(income_by_period.get(p, 0.0), 2)
+        expense_net = expense_net_by_period.get(p, 0.0)
+        expenses_f = round(max(0.0, -expense_net), 2)
         out.append(
             {
                 "period": str(p),
                 "income": income_f,
                 "expenses": expenses_f,
                 "net": round(income_f - expenses_f, 2),
-                "categories": categories_by_period.get(str(p), []),
+                "categories": categories_by_period.get(p, []),
             }
         )
     return out
@@ -267,21 +296,23 @@ def get_category_breakdown(db: Session, filters: AnalyticsFilters) -> list[dict]
 def get_merchant_ranking(db: Session, filters: AnalyticsFilters, limit: int = 20) -> list[dict]:
     q = build_filtered_query(db, filters)
     rows = (
-        q.filter(Transaction.amount < 0)
+        q.join(Category, Transaction.final_category_id == Category.id)
+        .filter(Category.is_income.is_(False))
         .with_entities(
             Transaction.merchant,
-            func.coalesce(func.sum(-Transaction.amount), 0.0),
+            func.coalesce(func.sum(Transaction.amount), 0.0),
             func.count(Transaction.id),
         )
         .group_by(Transaction.merchant)
-        .order_by(func.sum(-Transaction.amount).desc())
+        .having(func.coalesce(func.sum(Transaction.amount), 0.0) < 0)
+        .order_by(func.sum(Transaction.amount).asc())
         .limit(limit)
         .all()
     )
     return [
         {
             "merchant": (row[0] or "").strip() or "Unknown",
-            "total_spend": round(float(row[1]), 2),
+            "total_spend": round(max(0.0, -float(row[1])), 2),
             "count": int(row[2]),
         }
         for row in rows
@@ -290,20 +321,22 @@ def get_merchant_ranking(db: Session, filters: AnalyticsFilters, limit: int = 20
 
 def get_sankey_data(db: Session, filters: AnalyticsFilters) -> dict:
     q = build_filtered_query(db, filters)
-    expenses = (
-        q.join(Category, Transaction.final_category_id == Category.id)
-        .filter(Transaction.amount < 0)
-        .with_entities(Category.id, Category.name, func.coalesce(func.sum(-Transaction.amount), 0.0))
-        .group_by(Category.id, Category.name)
-        .all()
-    )
     incomes = (
         q.join(Category, Transaction.final_category_id == Category.id)
-        .filter(Transaction.amount > 0)
+        .filter(Category.is_income.is_(True))
+        .with_entities(Category.id, Category.name, func.coalesce(func.sum(Transaction.amount), 0.0))
+        .group_by(Category.id, Category.name)
+        .having(func.coalesce(func.sum(Transaction.amount), 0.0) > 0)
+        .all()
+    )
+    expense_rows = (
+        q.join(Category, Transaction.final_category_id == Category.id)
+        .filter(Category.is_income.is_(False))
         .with_entities(Category.id, Category.name, func.coalesce(func.sum(Transaction.amount), 0.0))
         .group_by(Category.id, Category.name)
         .all()
     )
+    expenses = [(cid, cname, max(0.0, -float(net))) for cid, cname, net in expense_rows if float(net or 0) < 0]
 
     nodes = [{"id": "total_income", "label": "Total income"}]
     links: list[dict] = []
@@ -316,7 +349,7 @@ def get_sankey_data(db: Session, filters: AnalyticsFilters) -> dict:
     for cid, cname, total in expenses:
         node_id = f"out_{cid}"
         nodes.append({"id": node_id, "label": f"{cname} (expense)"})
-        links.append({"source": "total_income", "target": node_id, "value": round(float(total), 2)})
+        links.append({"source": "total_income", "target": node_id, "value": round(total, 2)})
 
     return {"nodes": nodes, "links": links}
 
@@ -394,17 +427,22 @@ def _amount_distribution(amounts: list[float], bucket_count: int = 8) -> list[di
 
 def get_spending_habits(db: Session, filters: AnalyticsFilters) -> dict:
     q = build_filtered_query(db, filters)
-    expenses_q = q.filter(Transaction.amount < 0)
+    expenses_q = (
+        q.join(Category, Transaction.final_category_id == Category.id)
+        .filter(Category.is_income.is_(False))
+    )
+    expense_net = expenses_q.with_entities(func.coalesce(func.sum(Transaction.amount), 0.0)).scalar()
+    total_spend = _round2(max(0.0, -float(expense_net or 0.0)))
 
     expense_rows = (
-        expenses_q.with_entities(Transaction.date, Transaction.amount, Transaction.merchant)
+        expenses_q.filter(Transaction.amount < 0)
+        .with_entities(Transaction.date, Transaction.amount, Transaction.merchant)
         .order_by(Transaction.date.asc())
         .all()
     )
 
     amounts = [-float(row[1]) for row in expense_rows]
     tx_count = len(amounts)
-    total_spend = _round2(sum(amounts))
 
     if tx_count:
         avg_amount = total_spend / tx_count
@@ -518,13 +556,9 @@ def get_spending_habits(db: Session, filters: AnalyticsFilters) -> dict:
     ]
 
     base_filters = replace(filters, category_ids=None, merchant_names=None)
-    baseline_total = (
-        build_filtered_query(db, base_filters)
-        .filter(Transaction.amount < 0)
-        .with_entities(func.coalesce(func.sum(-Transaction.amount), 0.0))
-        .scalar()
-    )
-    baseline_total_f = float(baseline_total or 0.0)
+    base_q = build_filtered_query(db, base_filters)
+    _, baseline_expense = _income_expense_from_categories(base_q)
+    baseline_total_f = baseline_expense
     proportion_of_total = _round2((total_spend / baseline_total_f) * 100.0) if baseline_total_f > 0 else 0.0
 
     category_rank: int | None = None
@@ -532,14 +566,18 @@ def get_spending_habits(db: Session, filters: AnalyticsFilters) -> dict:
     if filters.category_ids and len(filters.category_ids) == 1:
         category_totals = (
             build_filtered_query(db, base_filters)
-            .filter(Transaction.amount < 0)
             .join(Category, Transaction.final_category_id == Category.id)
-            .with_entities(Category.id, func.coalesce(func.sum(-Transaction.amount), 0.0).label("total"))
+            .filter(Category.is_income.is_(False))
+            .with_entities(
+                Category.id,
+                func.coalesce(func.sum(Transaction.amount), 0.0).label("net"),
+            )
             .group_by(Category.id)
-            .order_by(func.sum(-Transaction.amount).desc())
+            .having(func.coalesce(func.sum(Transaction.amount), 0.0) < 0)
+            .order_by(func.sum(Transaction.amount).asc())
             .all()
         )
-        rank_map = {int(cid): idx + 1 for idx, (cid, _total) in enumerate(category_totals)}
+        rank_map = {int(cid): idx + 1 for idx, (cid, _net) in enumerate(category_totals)}
         category_rank = rank_map.get(filters.category_ids[0])
         category_rank_total = len(category_totals)
 

@@ -712,6 +712,11 @@ def test_analytics_excludes_transfers_by_default_household_and_includes_for_acco
         "/api/transactions/transfers/link",
         json={"transaction_id": t1["id"], "candidate_id": t2["id"], "confidence": 1.0},
     )
+    # Classify the outflow so it counts as expense in category-based analytics.
+    # Account-scoped view includes transfers by default so the linked outflow appears.
+    cats = client.get("/api/categories/").json()
+    groceries_id = next(c["id"] for c in cats if c["name"] == "Groceries")
+    client.post(f"/api/transactions/{t1['id']}/classify", json={"category_id": groceries_id})
 
     household = client.get("/api/analytics/timeseries?granularity=monthly")
     assert household.status_code == 200
@@ -722,6 +727,7 @@ def test_analytics_excludes_transfers_by_default_household_and_includes_for_acco
     account_view = client.get("/api/analytics/timeseries?granularity=monthly&account_id=1")
     assert account_view.status_code == 200
     account_points = account_view.json()["points"]
+    # Account-scoped view includes transfers; the -120 is categorized as expense.
     assert any(abs(p["expenses"]) > 0.001 for p in account_points)
 
 
@@ -752,6 +758,11 @@ def test_analytics_trip_include_exclusion_and_trip_scoping(client, db_session):
             "currency": "EUR",
         },
     ).json()
+
+    cats = client.get("/api/categories/").json()
+    groceries_id = next(c["id"] for c in cats if c["name"] == "Groceries")
+    client.post(f"/api/transactions/{t1['id']}/classify", json={"category_id": groceries_id})
+    client.post(f"/api/transactions/{t2['id']}/classify", json={"category_id": groceries_id})
 
     trip_a = Trip(name="City Break", start_date=date(2026, 2, 1), end_date=date(2026, 2, 10))
     trip_b = Trip(name="Weekend", start_date=date(2026, 2, 1), end_date=date(2026, 2, 10))
@@ -818,6 +829,15 @@ def test_analytics_merchant_name_filter(client):
             "currency": "EUR",
         },
     )
+    cats = client.get("/api/categories/").json()
+    coffee_id = next(c["id"] for c in cats if c["name"] == "Coffee")
+    groceries_id = next(c["id"] for c in cats if c["name"] == "Groceries")
+    txns = client.get("/api/transactions/").json()["items"]
+    for t in txns:
+        if t["merchant"] == "Cafe Alpha":
+            client.post(f"/api/transactions/{t['id']}/classify", json={"category_id": coffee_id})
+        elif t["merchant"] == "Market Beta":
+            client.post(f"/api/transactions/{t['id']}/classify", json={"category_id": groceries_id})
 
     filtered = client.get("/api/analytics/timeseries?granularity=monthly&merchant_names=Cafe Alpha")
     assert filtered.status_code == 200

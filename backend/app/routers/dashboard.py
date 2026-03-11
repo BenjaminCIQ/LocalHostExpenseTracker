@@ -10,6 +10,7 @@ from app.models.account import Account
 from app.models.category import Category
 from app.models.external_account import ExternalFundingLink
 from app.models.transaction import Transaction
+from app.services.analytics_service import _income_expense_from_categories
 from app.schemas.dashboard import (
     CategorySpend,
     ClassificationStats,
@@ -54,16 +55,7 @@ def get_dashboard(
         end = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
         query = query.filter(Transaction.date >= start, Transaction.date < end)
 
-    total_income = (
-        query.filter(Transaction.amount > 0)
-        .with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
-        .scalar()
-    )
-    total_expenses = abs(
-        query.filter(Transaction.amount < 0)
-        .with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
-        .scalar()
-    )
+    total_income, total_expenses = _income_expense_from_categories(query)
 
     category_rows = (
         query.filter(Transaction.final_category_id.isnot(None))
@@ -96,9 +88,9 @@ def get_dashboard(
     ).count()
 
     return DashboardResponse(
-        total_income=round(float(total_income), 2),
+        total_income=round(total_income, 2),
         total_expenses=round(total_expenses, 2),
-        net=round(float(total_income) - total_expenses, 2),
+        net=round(total_income - total_expenses, 2),
         spending_by_category=spending_by_category,
         classification_stats=ClassificationStats(
             total_transactions=total,
@@ -154,23 +146,14 @@ def get_monthly_breakdown(
     for i, start in enumerate(starts):
         end = starts[i + 1] if i + 1 < len(starts) else _add_month(date(today.year, today.month, 1))
         q = tx_query.filter(Transaction.date >= start, Transaction.date < end)
-        income = (
-            q.filter(Transaction.amount > 0)
-            .with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
-            .scalar()
-        )
-        expenses = abs(
-            q.filter(Transaction.amount < 0)
-            .with_entities(func.coalesce(func.sum(Transaction.amount), 0.0))
-            .scalar()
-        )
+        income, expenses = _income_expense_from_categories(q)
         month_key = f"{start.year:04d}-{start.month:02d}"
         out.append(
             MonthlyTotals(
                 month=month_key,
-                income=round(float(income), 2),
-                expenses=round(float(expenses), 2),
-                net=round(float(income) - float(expenses), 2),
+                income=round(income, 2),
+                expenses=round(expenses, 2),
+                net=round(income - expenses, 2),
             )
         )
 
