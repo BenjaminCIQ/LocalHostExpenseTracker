@@ -343,12 +343,12 @@ def get_sankey_data(db: Session, filters: AnalyticsFilters) -> dict:
 
     for cid, cname, total in incomes:
         node_id = f"in_{cid}"
-        nodes.append({"id": node_id, "label": f"{cname} (income)"})
+        nodes.append({"id": node_id, "label": cname})
         links.append({"source": node_id, "target": "total_income", "value": round(float(total), 2)})
 
     for cid, cname, total in expenses:
         node_id = f"out_{cid}"
-        nodes.append({"id": node_id, "label": f"{cname} (expense)"})
+        nodes.append({"id": node_id, "label": cname})
         links.append({"source": "total_income", "target": node_id, "value": round(total, 2)})
 
     return {"nodes": nodes, "links": links}

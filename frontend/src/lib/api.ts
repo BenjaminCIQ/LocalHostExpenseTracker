@@ -2,12 +2,11 @@ const BASE = "/api";
 
 /** Error with optional debug payload from API (e.g. category delete block details) */
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly debug?: unknown
-  ) {
+  readonly debug?: unknown;
+  constructor(message: string, debug?: unknown) {
     super(message);
     this.name = "ApiError";
+    this.debug = debug;
   }
 }
 

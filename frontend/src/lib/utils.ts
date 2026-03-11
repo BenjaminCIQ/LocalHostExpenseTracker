@@ -5,10 +5,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatCurrency(amount: number, currency = "EUR"): string {
+export function formatCurrency(
+  amount: number,
+  currency = "EUR",
+  options?: { maximumFractionDigits?: number }
+): string {
+  const frac = options?.maximumFractionDigits;
   return new Intl.NumberFormat("de-DE", {
     style: "currency",
     currency,
+    ...(frac !== undefined && {
+      maximumFractionDigits: frac,
+      minimumFractionDigits: frac,
+    }),
   }).format(amount);
 }
 

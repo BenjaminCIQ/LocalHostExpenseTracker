@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   api,
@@ -11,7 +11,7 @@ import {
 } from "@/lib/api";
 import AccountIcon from "@/components/icons/AccountIcon";
 import { useSelectedPersonId } from "@/lib/personFilter";
-import { Link2, Play } from "lucide-react";
+import { Play } from "lucide-react";
 
 const DEFAULT_RULE: TransferLinkingRuleCreate = {
   name: "",
@@ -149,9 +149,12 @@ export default function TransferLinkingRulesPage() {
             <Play className="h-4 w-4" />
             Apply rules
           </Button>
-          <Button variant="outline" asChild>
-            <Link to="/transactions?tab=transfers">Transfer Review</Link>
-          </Button>
+          <Link
+            to="/transactions?tab=transfers"
+            className={buttonVariants({ variant: "outline" })}
+          >
+            Transfer Review
+          </Link>
         </div>
       </div>
 

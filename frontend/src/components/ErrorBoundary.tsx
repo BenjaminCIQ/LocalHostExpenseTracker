@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import type { PageId } from "@/lib/widgets/types";
 
 interface Props {
   children: ReactNode;
