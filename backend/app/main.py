@@ -41,7 +41,7 @@ from app.routers import (
     transactions,
     upload,
 )
-from app.seed import seed_categories, seed_default_account
+from app.seed import seed_categories, seed_default_account, seed_default_person
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -251,6 +251,7 @@ async def lifespan(_app: FastAPI):
 
     db = SessionLocal()
     try:
+        seed_default_person(db)
         seed_categories(db)
         seed_default_account(db)
         ben = db.execute(text("SELECT id FROM persons WHERE lower(name)='ben' LIMIT 1")).fetchone()

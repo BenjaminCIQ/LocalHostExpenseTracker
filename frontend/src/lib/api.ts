@@ -667,6 +667,8 @@ export interface TransferCandidate {
 
 export const api = {
   getAuthOptions: () => request<{ persons: AuthPersonOption[] }>("/auth/options"),
+  setupFirstUser: (payload: { name: string; password: string; remember_me?: boolean }) =>
+    request<AuthMe>("/auth/setup-first", { method: "POST", body: JSON.stringify(payload) }),
   bootstrapAuth: (payload: { person_id: number; password: string; remember_me?: boolean }) =>
     request<AuthMe>("/auth/bootstrap", { method: "POST", body: JSON.stringify(payload) }),
   login: (payload: { person_id: number; password: string; remember_me?: boolean }) =>

@@ -75,6 +75,15 @@ DEFAULT_CATEGORIES = [
 ]
 
 
+def seed_default_person(db: Session) -> None:
+    """Ensure at least one person exists (repairs DB if persons were cleared)."""
+    if db.query(Person).count() > 0:
+        return
+    person = Person(name="Me")
+    db.add(person)
+    db.commit()
+
+
 def seed_categories(db: Session) -> None:
     if db.query(Category).count() > 0:
         return

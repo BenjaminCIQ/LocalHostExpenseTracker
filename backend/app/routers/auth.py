@@ -16,6 +16,7 @@ from app.schemas.auth import (
     AuthOptionsResponse,
     AuthPersonOption,
     AuthPersonRead,
+    AuthSetupFirstRequest,
 )
 from app.security import (
     generate_session_token,
@@ -115,6 +116,49 @@ def auth_options(db: Session = Depends(get_db)):
             )
             for p in people
         ]
+    )
+
+
+@router.post("/setup-first", response_model=AuthMeResponse)
+def setup_first_user(
+    payload: AuthSetupFirstRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Create the first user (person + password) when no one has credentials yet."""
+    has_any_credential = db.query(PersonCredential).first() is not None
+    if has_any_credential:
+        raise HTTPException(
+            status_code=403,
+            detail="First user already exists. Use login or set-password flow.",
+        )
+    name = payload.name.strip()
+    existing = db.query(Person).filter(Person.name == name).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Person with this name already exists")
+    person = Person(name=name)
+    db.add(person)
+    db.flush()
+    pwd_hash, salt, iterations = hash_password(payload.password)
+    cred = PersonCredential(
+        person_id=person.id,
+        password_hash=pwd_hash,
+        password_salt=salt,
+        password_iterations=iterations,
+    )
+    db.add(cred)
+    token, expires_at = _create_session(
+        db,
+        person_id=person.id,
+        remember_me=payload.remember_me,
+        request=request,
+    )
+    _set_auth_cookie(response, token, expires_at)
+    return AuthMeResponse(
+        authenticated=True,
+        person=AuthPersonRead(id=person.id, name=person.name, is_admin=person.is_admin),
+        expires_at=expires_at,
     )
 
 
