@@ -156,11 +156,12 @@ function SankeyWidget({ filters, globalControls, widgetState, setWidgetState }: 
       nodeThickness,
       chartHeightRem,
     });
+    // Only sync when local control values change; omit widgetState/setWidgetState to avoid
+    // infinite loop (setWidgetState updates parent state -> new widgetState -> effect re-runs).
   }, [
     includeTransfers,
     includeUncategorized,
     maxNodes,
-    setWidgetState,
     showAdvanced,
     showControls,
     detailZoom,
@@ -169,7 +170,6 @@ function SankeyWidget({ filters, globalControls, widgetState, setWidgetState }: 
     topNInMajor,
     nodeThickness,
     chartHeightRem,
-    widgetState,
   ]);
 
   const sankeyParams = useMemo(() => {
