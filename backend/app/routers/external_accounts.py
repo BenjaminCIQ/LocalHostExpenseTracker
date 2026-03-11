@@ -148,6 +148,18 @@ def create_funding_link(
             detail="Transaction has zero amount. Use override_validation to force link.",
         )
 
+    if not payload.override_validation:
+        if payload.link_type == "funding_in" and txn.amount <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="funding_in expects an inflow (positive amount). Use override_validation to force link.",
+            )
+        if payload.link_type == "funding_out" and txn.amount >= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="funding_out expects an outflow (negative amount). Use override_validation to force link.",
+            )
+
     existing_total = (
         db.query(func.coalesce(func.sum(ExternalFundingLink.linked_amount), 0.0))
         .filter(ExternalFundingLink.transaction_id == txn.id)
