@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 
@@ -6,9 +7,12 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_name: str = "Expense Tracker"
     database_url: str = "sqlite:///./data/expense_tracker.db"
+    database_passphrase: Optional[str] = None
     data_dir: Path = Path("./data")
     ml_model_dir: Path = Path("./data/ml_models")
     upload_dir: Path = Path("./data/uploads")
+    static_dir: Optional[Path] = None
+    env: str = "development"
 
     ml_min_samples_to_train: int = 30
     ml_retrain_threshold: int = 20
@@ -49,6 +53,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_prefix = "EXPENSE_TRACKER_"
+        extra = "ignore"
 
 
 settings = Settings()

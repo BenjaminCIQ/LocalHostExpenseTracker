@@ -49,6 +49,42 @@ The frontend starts at http://localhost:5173 and proxies API requests to the bac
 3. **Learn**: After 30+ classifications, the ML model trains automatically and starts suggesting categories
 4. **Improve**: Corrections and new classifications continuously improve the model
 
+## Deployment
+
+### Docker (recommended)
+
+1. Copy env: `cp .env.example .env` and set at least `EXPENSE_TRACKER_AUTH_TOKEN_PEPPER` (required in production).
+2. Build and run:
+   ```bash
+   docker compose up --build -d
+   ```
+   App is at http://localhost:8000 (frontend and API from one container). Data is stored in `backend/data/` (bind-mounted); back up this directory regularly.
+3. Optional: use a reverse proxy (Caddy, nginx, Traefik) in front for HTTPS; then set `EXPENSE_TRACKER_AUTH_COOKIE_SECURE=true` and `EXPENSE_TRACKER_CORS_ALLOWED_ORIGINS` to your front-end origin.
+
+### Bare metal
+
+1. Build frontend: `cd frontend && npm ci && npm run build`
+2. Set env (see `.env.example`). Set `EXPENSE_TRACKER_STATIC_DIR` to the absolute path of `frontend/dist`.
+3. Run backend (no reload): `cd backend && pip install -r requirements.txt && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000`
+
+### Secrets and production
+
+- **Required in production**: set `EXPENSE_TRACKER_AUTH_TOKEN_PEPPER` to a strong random value; set `EXPENSE_TRACKER_ENV=production` so the app refuses to start with the default pepper.
+- **Optional SQLite encryption**: set `EXPENSE_TRACKER_DATABASE_PASSPHRASE` (key from env only). See [docs/deployment.md](docs/deployment.md) for encrypting an existing database and backups.
+- Never commit `.env` or the contents of `backend/data/`; they are in `.gitignore`.
+
+### Cookie and CORS
+
+- When behind HTTPS, set `EXPENSE_TRACKER_AUTH_COOKIE_SECURE=true`.
+- Set `EXPENSE_TRACKER_CORS_ALLOWED_ORIGINS` to your front-end origin(s), comma-separated. Do not use a wildcard when using credentials (cookies).
+
+### Health and readiness
+
+- `GET /api/health` — liveness.
+- `GET /api/ready` — readiness (checks DB connectivity; use for orchestrators).
+
+More detail (database hardening, backups, HTTPS): [docs/deployment.md](docs/deployment.md).
+
 ## Project Structure
 
 ```

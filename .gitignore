@@ -7,3 +7,7 @@
 /**/__pycache__/
 /**/*.py[cod]
 /backend/data
+.env
+*.db
+*.db-wal
+*.db-shm

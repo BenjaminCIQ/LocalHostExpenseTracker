@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.staticfiles import StaticFiles as StarletteStaticFiles
 from sqlalchemy import text
 
 from app.config import settings
@@ -237,6 +238,11 @@ def _ensure_auth_tables():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    if settings.env == "production" and settings.auth_token_pepper == "change-me-in-production":
+        raise RuntimeError(
+            "Refusing to start: set EXPENSE_TRACKER_AUTH_TOKEN_PEPPER in production. "
+            "See .env.example for required env vars."
+        )
     for d in [settings.data_dir, settings.ml_model_dir, settings.upload_dir]:
         Path(d).mkdir(parents=True, exist_ok=True)
 
@@ -305,9 +311,46 @@ app.include_router(transfer_linking_rules.router, dependencies=[Depends(require_
 app.include_router(trips.router, dependencies=[Depends(require_authenticated_user)])
 
 
+class SPAStaticFiles(StarletteStaticFiles):
+    """Serve static files and fall back to index.html for SPA client-side routes."""
+
+    def __init__(self, *args, index_path: str = "index.html", **kwargs):
+        super().__init__(*args, **kwargs)
+        self._index_path = index_path
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 404 and not path.startswith("api/"):
+            return await super().get_response(self._index_path, scope)
+        return response
+
+
+if settings.static_dir is not None:
+    static_path = Path(settings.static_dir)
+    if static_path.is_dir():
+        app.mount("/", SPAStaticFiles(directory=str(static_path)), name="static")
+        logger.info("Serving static frontend from %s", static_path)
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/ready")
+def ready():
+    """Readiness: DB connection and optional SQLCipher key check."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "ready"}
+    except Exception as e:
+        logger.warning("Readiness check failed: %s", e)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not ready", "detail": "Database unavailable"},
+        )
 
 
 if __name__ == "__main__":
