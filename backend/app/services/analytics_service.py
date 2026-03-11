@@ -9,6 +9,7 @@ from sqlalchemy.orm import Query, Session
 
 from app.models.account import Account
 from app.models.category import Category
+from app.models.external_account import ExternalFundingLink
 from app.models.transaction import Transaction
 from app.models.trip import Trip, TripTransactionOverride
 from app.services.external_account_service import get_external_account_summary
@@ -66,7 +67,15 @@ class AnalyticsQueryBuilder:
 
     def filter_transfers(self, include_transfers: bool | None) -> "AnalyticsQueryBuilder":
         if include_transfers is False:
-            self._query = self._query.filter(Transaction.is_internal_transfer.is_(False))
+            external_linked = (
+                self.db.query(ExternalFundingLink.transaction_id)
+                .filter(ExternalFundingLink.transaction_id == Transaction.id)
+                .exists()
+            )
+            self._query = self._query.filter(
+                Transaction.is_internal_transfer.is_(False),
+                ~external_linked,
+            )
         return self
 
     def filter_trip(self, trip_id: int | None) -> "AnalyticsQueryBuilder":
@@ -111,6 +120,7 @@ class AnalyticsQueryBuilder:
     ) -> "AnalyticsQueryBuilder":
         if not exclude_trip_included:
             return self
+        # Exclude transactions that are explicitly included in excluded trips
         include_marked = self.db.query(TripTransactionOverride.id).filter(
             TripTransactionOverride.transaction_id == Transaction.id,
             TripTransactionOverride.include.is_(True),
@@ -121,6 +131,16 @@ class AnalyticsQueryBuilder:
             )
         include_marked_exists = include_marked.exists()
         self._query = self._query.filter(~include_marked_exists)
+        # Also exclude transactions whose date falls within any excluded trip's window
+        if excluded_trip_ids:
+            trips = self.db.query(Trip).filter(Trip.id.in_(excluded_trip_ids)).all()
+            for trip in trips:
+                self._query = self._query.filter(
+                    or_(
+                        Transaction.date < trip.start_date,
+                        Transaction.date > trip.end_date,
+                    )
+                )
         return self
 
     def build(self) -> Query:

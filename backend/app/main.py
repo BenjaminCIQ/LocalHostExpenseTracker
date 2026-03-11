@@ -113,6 +113,16 @@ def _ensure_people_admin_column():
         existing = {r[1] for r in cols}
         if "is_admin" not in existing:
             conn.execute(text("ALTER TABLE persons ADD COLUMN is_admin BOOLEAN DEFAULT 0"))
+        if "icon_id" not in existing:
+            conn.execute(text("ALTER TABLE persons ADD COLUMN icon_id VARCHAR(32)"))
+
+
+def _ensure_account_icon_column():
+    with engine.begin() as conn:
+        cols = conn.execute(text("PRAGMA table_info(accounts)")).fetchall()
+        existing = {r[1] for r in cols}
+        if "icon_id" not in existing:
+            conn.execute(text("ALTER TABLE accounts ADD COLUMN icon_id VARCHAR(32)"))
 
 
 def _ensure_external_tracking_tables():
@@ -235,6 +245,7 @@ async def lifespan(_app: FastAPI):
     _ensure_transactions_raw_columns()
     _ensure_accounts_person_column()
     _ensure_people_admin_column()
+    _ensure_account_icon_column()
     _ensure_external_tracking_tables()
     _ensure_auth_tables()
 

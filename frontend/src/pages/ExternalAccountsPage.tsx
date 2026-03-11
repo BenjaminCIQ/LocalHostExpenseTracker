@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -61,14 +62,14 @@ export default function ExternalAccountsPage() {
     () => transferCandidates.find((t) => t.id === linkTxnId) ?? null,
     [transferCandidates, linkTxnId]
   );
-  const filteredTransferCandidates = useMemo(
-    () =>
-      transferCandidates.filter((t) => {
-        if (linkType === "funding_in") return t.amount < 0;
-        return t.amount > 0;
-      }),
-    [transferCandidates, linkType]
-  );
+  const filteredTransferCandidates = useMemo(() => {
+    const linkedIds = new Set(fundingLinks.map((f) => f.transaction_id));
+    return transferCandidates.filter((t) => {
+      if (linkedIds.has(t.id)) return false;
+      if (linkType === "funding_in") return t.amount < 0;
+      return t.amount > 0;
+    });
+  }, [transferCandidates, fundingLinks, linkType]);
 
   async function loadAccounts() {
     try {
@@ -80,24 +81,66 @@ export default function ExternalAccountsPage() {
     }
   }
 
+  const PAGE_SIZE = 200;
+  const [txnSearch, setTxnSearch] = useState("");
+  const [txnPage, setTxnPage] = useState(1);
+  const [txnLoading, setTxnLoading] = useState(false);
+  const [txnHasMore, setTxnHasMore] = useState(false);
+  const [txnDropdownOpen, setTxnDropdownOpen] = useState(false);
+  const txnSearchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const txnDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!txnDropdownOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (txnDropdownRef.current && !txnDropdownRef.current.contains(e.target as Node)) setTxnDropdownOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTxnDropdownOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onEsc);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onEsc);
+    };
+  }, [txnDropdownOpen]);
+
+  const loadTransactionCandidates = useCallback(
+    async (search: string, page: number, append: boolean) => {
+      setTxnLoading(true);
+      try {
+        const res = await api.getTransactions({
+          page,
+          page_size: PAGE_SIZE,
+          person_id: selectedPersonId ?? undefined,
+          include_transfers: false,
+          q: search.trim() || undefined,
+          sort_by: "date",
+          sort_dir: "desc",
+        });
+        setTransferCandidates((prev) => (append ? [...prev, ...res.items] : res.items));
+        setTxnHasMore(res.page < res.total_pages);
+        setTxnPage(page);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to load transactions");
+      } finally {
+        setTxnLoading(false);
+      }
+    },
+    [selectedPersonId]
+  );
+
   async function loadSelectedDetails(id: number) {
     try {
-      const [s, f, r, tx] = await Promise.all([
+      const [s, f, r] = await Promise.all([
         api.getExternalSnapshots(id),
         api.getExternalFundingLinks(id),
         api.getExternalReconciliation(id),
-        api.getTransactions({
-          page: 1,
-          page_size: 100,
-          person_id: selectedPersonId ?? undefined,
-          include_transfers: true,
-          transaction_kind: "transfer",
-        }),
       ]);
       setSnapshots(s);
       setFundingLinks(f);
       setReconciliation(r);
-      setTransferCandidates(tx.items);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load account details");
@@ -111,6 +154,25 @@ export default function ExternalAccountsPage() {
   useEffect(() => {
     if (selectedId) void loadSelectedDetails(selectedId);
   }, [selectedId, selectedPersonId]);
+
+  useEffect(() => {
+    setTransferCandidates([]);
+    setTxnDropdownOpen(false);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!txnDropdownOpen || !selectedId) return;
+    const delay = txnSearch.trim() ? 300 : 0;
+    txnSearchDebounce.current = setTimeout(() => {
+      loadTransactionCandidates(txnSearch.trim(), 1, false);
+    }, delay);
+    return () => {
+      if (txnSearchDebounce.current) {
+        clearTimeout(txnSearchDebounce.current);
+        txnSearchDebounce.current = null;
+      }
+    };
+  }, [txnDropdownOpen, selectedId, txnSearch, loadTransactionCandidates]);
 
   useEffect(() => {
     if (!selectedTransfer) return;
@@ -380,15 +442,72 @@ export default function ExternalAccountsPage() {
                 </div>
 
                 <div className="grid gap-2 md:grid-cols-5 items-end">
-                  <Select value={linkTxnId} onChange={(e) => setLinkTxnId(Number(e.target.value) || "")}>
-                    <option value="">Select transfer transaction</option>
-                    {filteredTransferCandidates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        #{t.id} · {formatDate(t.date)} · {formatCurrency(t.amount)} · {t.merchant || "Unknown"} ·{" "}
-                        {transferLikelyDirectionLabel(t.amount)}
-                      </option>
-                    ))}
-                  </Select>
+                  <div className="relative" ref={txnDropdownRef}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-between font-normal"
+                      onClick={() => {
+                        setTxnDropdownOpen((v) => !v);
+                        if (!txnDropdownOpen) setTxnSearch("");
+                      }}
+                    >
+                      <span className="truncate">
+                        {selectedTransfer
+                          ? `#${selectedTransfer.id} · ${formatDate(selectedTransfer.date)} · ${formatCurrency(selectedTransfer.amount)} · ${selectedTransfer.merchant || "Unknown"}`
+                          : "Select transfer transaction"}
+                      </span>
+                      <ChevronDown className="h-4 w-4 shrink-0" />
+                    </Button>
+                    {txnDropdownOpen && (
+                      <div
+                        className="absolute z-20 mt-1 left-0 right-0 min-w-[20rem] max-w-[32rem] rounded-md border border-border bg-background p-2 shadow-lg"
+                      >
+                        <input
+                          className="mb-2 h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+                          placeholder="Search merchant, description…"
+                          value={txnSearch}
+                          onChange={(e) => setTxnSearch(e.target.value)}
+                          autoFocus
+                        />
+                        <div className="max-h-64 overflow-y-auto space-y-0.5">
+                          {filteredTransferCandidates.map((t) => (
+                            <button
+                              key={t.id}
+                              type="button"
+                              className="w-full text-left rounded px-2 py-1.5 text-sm hover:bg-muted/50 truncate"
+                              onClick={() => {
+                                setLinkTxnId(t.id);
+                                setTxnDropdownOpen(false);
+                              }}
+                            >
+                              #{t.id} · {formatDate(t.date)} · {formatCurrency(t.amount)} · {t.merchant || "Unknown"} ·{" "}
+                              {transferLikelyDirectionLabel(t.amount)}
+                            </button>
+                          ))}
+                          {!txnLoading && filteredTransferCandidates.length === 0 && (
+                            <p className="px-2 py-2 text-xs text-muted-foreground">
+                              {transferCandidates.length === 0 ? "No transactions match. Try a different search." : "No matching transactions for this direction."}
+                            </p>
+                          )}
+                          {txnLoading && (
+                            <p className="px-2 py-2 text-xs text-muted-foreground">Loading…</p>
+                          )}
+                        </div>
+                        {txnHasMore && !txnLoading && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="w-full mt-2"
+                            onClick={() => loadTransactionCandidates(txnSearch.trim(), txnPage + 1, true)}
+                          >
+                            Load more
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <input
                     type="number"
                     className="h-9 rounded-md border border-border bg-background px-3 text-sm"

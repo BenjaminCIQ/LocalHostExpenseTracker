@@ -3,6 +3,8 @@ import DashboardComposer from "@/components/DashboardComposer";
 import { DashboardFiltersProvider, useDashboardFilters } from "@/lib/widgets/DashboardFiltersContext";
 import "@/lib/widgets";
 import { api, type Account, type Person } from "@/lib/api";
+import PersonIcon from "@/components/icons/PersonIcon";
+import AccountIcon from "@/components/icons/AccountIcon";
 import { useSelectedPersonId } from "@/lib/personFilter";
 
 function OverviewFilters() {
@@ -12,8 +14,17 @@ function OverviewFilters() {
   const [people, setPeople] = useState<Person[]>([]);
 
   useEffect(() => {
-    api.getAccounts().then(setAccounts).catch(() => setAccounts([]));
-    api.getPersons().then(setPeople).catch(() => setPeople([]));
+    const load = () => {
+      api.getAccounts().then(setAccounts).catch(() => setAccounts([]));
+      api.getPersons().then(setPeople).catch(() => setPeople([]));
+    };
+    load();
+    window.addEventListener("people-updated", load);
+    window.addEventListener("accounts-updated", load);
+    return () => {
+      window.removeEventListener("people-updated", load);
+      window.removeEventListener("accounts-updated", load);
+    };
   }, []);
 
   useEffect(() => {
@@ -49,35 +60,53 @@ function OverviewFilters() {
           onChange={(e) => setDateRange(filters.dateRange.start, e.target.value || null)}
         />
       </div>
-      <div>
-        <div className="text-xs text-muted-foreground">Person</div>
-        <select
-          className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-          value={filters.personId ?? ""}
-          onChange={(e) => setPersonId(e.target.value ? Number(e.target.value) : null)}
-        >
-          <option value="">Household</option>
-          {people.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+      <div className="flex items-center gap-2">
+        {filters.personId && (
+          <PersonIcon
+            iconId={people.find((p) => p.id === filters.personId)?.icon_id}
+            title={people.find((p) => p.id === filters.personId)?.name}
+            className="h-4 w-4 shrink-0"
+          />
+        )}
+        <div>
+          <div className="text-xs text-muted-foreground">Person</div>
+          <select
+            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            value={filters.personId ?? ""}
+            onChange={(e) => setPersonId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">Household</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
-      <div>
-        <div className="text-xs text-muted-foreground">Account</div>
-        <select
-          className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-          value={filters.accountId ?? ""}
-          onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : null)}
-        >
-          <option value="">All</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+      <div className="flex items-center gap-2">
+        {filters.accountId && (
+          <AccountIcon
+            iconId={accounts.find((a) => a.id === filters.accountId)?.icon_id}
+            title={accounts.find((a) => a.id === filters.accountId)?.name}
+            className="h-4 w-4 shrink-0"
+          />
+        )}
+        <div>
+          <div className="text-xs text-muted-foreground">Account</div>
+          <select
+            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            value={filters.accountId ?? ""}
+            onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">All</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );

@@ -13,6 +13,51 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
+function AverageLabelWithBackground({
+  viewBox,
+  x,
+  y,
+  value,
+  fill,
+}: {
+  viewBox?: { x?: number; y?: number; width?: number; height?: number };
+  x?: number;
+  y?: number;
+  value?: string;
+  fill?: string;
+}) {
+  if (value == null) return null;
+  const cx = x ?? (viewBox ? (viewBox.x ?? 0) + (viewBox.width ?? 0) / 2 : 0);
+  const labelY = y ?? (viewBox ? (viewBox.y ?? 0) - 14 : 0);
+  const padding = 8;
+  const textWidth = Math.min((value.length * 8), 180);
+  const boxWidth = textWidth + padding * 2;
+  const boxHeight = 22;
+  return (
+    <g transform={`translate(${cx - boxWidth / 2}, ${labelY - boxHeight})`}>
+      <rect
+        width={boxWidth}
+        height={boxHeight}
+        fill="var(--color-card, #ffffff)"
+        stroke="var(--color-border, #e2e8f0)"
+        strokeWidth={1}
+        rx={4}
+      />
+      <text
+        x={boxWidth / 2}
+        y={boxHeight / 2 + 4}
+        textAnchor="middle"
+        fill={fill ?? "var(--color-foreground, #0f172a)"}
+        fontSize={14}
+        fontWeight={600}
+      >
+        {value}
+      </text>
+    </g>
+  );
+}
+
 import { api, type AnalyticsCategoryAmount, type AnalyticsTimeseriesPoint, type Trip } from "@/lib/api";
 import CategoryMultiDropdown from "@/components/category/CategoryMultiDropdown";
 import { ControlsSection } from "@/components/widget-controls/ControlsSection";
@@ -762,12 +807,9 @@ function InteractiveCategoryBarWidget({
                   y={averageReference.value}
                   stroke={chartColors.reference}
                   strokeDasharray="4 4"
-                  label={{
-                    value: averageReference.label,
-                    position: "insideTopRight",
-                    fontSize: 11,
-                    fill: chartColors.reference,
-                  }}
+                  label={(props) => (
+                    <AverageLabelWithBackground {...props} value={averageReference!.label} fill={chartColors.reference} />
+                  )}
                 />
               )}
             </BarChart>
@@ -821,12 +863,9 @@ function InteractiveCategoryBarWidget({
                   y={averageReference.value}
                   stroke={chartColors.reference}
                   strokeDasharray="4 4"
-                  label={{
-                    value: averageReference.label,
-                    position: "insideTopRight",
-                    fontSize: 11,
-                    fill: chartColors.reference,
-                  }}
+                  label={(props) => (
+                    <AverageLabelWithBackground {...props} value={averageReference!.label} fill={chartColors.reference} />
+                  )}
                 />
               )}
             </LineChart>

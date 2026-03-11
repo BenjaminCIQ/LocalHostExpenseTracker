@@ -12,6 +12,7 @@ class AccountCreate(BaseModel):
     owner: str = ""
     starting_balance: float = 0.0
     person_id: int | None = None
+    icon_id: str | None = None
 
 
 class AccountUpdate(BaseModel):
@@ -23,6 +24,7 @@ class AccountUpdate(BaseModel):
     owner: str | None = None
     starting_balance: float | None = None
     person_id: int | None = None
+    icon_id: str | None = None
 
 
 class AccountRead(BaseModel):
@@ -35,6 +37,7 @@ class AccountRead(BaseModel):
     owner: str
     starting_balance: float
     person_id: int | None
+    icon_id: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

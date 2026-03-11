@@ -1,5 +1,16 @@
 const BASE = "/api";
 
+/** Error with optional debug payload from API (e.g. category delete block details) */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly debug?: unknown
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -8,7 +19,20 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed: ${res.status}`);
+    const detail = body.detail;
+    let msg: string;
+    let debug: unknown;
+    if (typeof detail === "object" && detail !== null && "message" in detail) {
+      msg = String((detail as { message?: string }).message || `Request failed: ${res.status}`);
+      debug = (detail as { debug?: unknown }).debug;
+    } else if (typeof detail === "string") {
+      msg = detail;
+    } else if (Array.isArray(detail) && detail[0]?.msg) {
+      msg = detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join("; ");
+    } else {
+      msg = `Request failed: ${res.status}`;
+    }
+    throw new ApiError(msg || `Request failed: ${res.status}`, debug);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -24,11 +48,13 @@ export interface Account {
   owner: string;
   starting_balance: number;
   person_id?: number | null;
+  icon_id?: string | null;
 }
 
 export interface Person {
   id: number;
   name: string;
+  icon_id?: string | null;
   created_at: string;
 }
 
@@ -113,6 +139,7 @@ export interface Transaction {
   transfer_confidence: number | null;
   transfer_match_source: "auto" | "manual" | null;
   is_internal_transfer: boolean;
+  has_external_funding_links?: boolean;
   is_deleted?: boolean;
   deleted_at?: string | null;
   deleted_by_person_id?: number | null;
@@ -660,14 +687,14 @@ export const api = {
     }),
 
   getPersons: () => request<Person[]>("/persons/"),
-  createPerson: (data: { name: string }) =>
+  createPerson: (data: { name: string; icon_id?: string | null }) =>
     request<Person>("/persons/", { method: "POST", body: JSON.stringify(data) }),
-  updatePerson: (id: number, data: { name: string }) =>
+  updatePerson: (id: number, data: { name: string; icon_id?: string | null }) =>
     request<Person>(`/persons/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deletePerson: (id: number) => request<void>(`/persons/${id}`, { method: "DELETE" }),
 
-  getCategories: () => request<Category[]>("/categories/"),
-  getCategoryTree: () => request<Category[]>("/categories/tree"),
+  getCategories: () => request<Category[]>("/categories/", { cache: "no-store" }),
+  getCategoryTree: () => request<Category[]>("/categories/tree", { cache: "no-store" }),
   createCategory: (data: CategoryCreate) =>
     request<Category>("/categories/", { method: "POST", body: JSON.stringify(data) }),
   updateCategory: (id: number, data: CategoryCreate) =>
@@ -753,11 +780,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  bulkClassify: (payload: { transaction_ids: number[]; category_id: number; merchant?: string }) =>
+  bulkClassify: (payload: { transaction_ids: number[]; category_id: number; merchant?: string; allow_classified?: boolean }) =>
     request<{ updated: number; skipped: number }>(`/transactions/bulk-classify`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  bulkSyncTransactionKind: (payload: { transaction_ids: number[] }) =>
+    request<{ updated: number; skipped: number; skipped_no_category: number; skipped_transfer: number }>(
+      `/transactions/bulk-sync-transaction-kind`,
+      { method: "POST", body: JSON.stringify(payload) }
+    ),
   getSimilarTransactions: (id: number, params?: { limit?: number; min_score?: number }) => {
     const qs = new URLSearchParams();
     if (params?.limit) qs.set("limit", String(params.limit));

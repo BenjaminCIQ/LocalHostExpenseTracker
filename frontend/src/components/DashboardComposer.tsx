@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactGridLayout from "react-grid-layout";
 import { Button } from "@/components/ui/button";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { GlobalControlsBar } from "@/components/GlobalControlsBar";
 import { WidgetCatalog } from "@/components/WidgetCatalog";
 import { WidgetShell } from "@/components/WidgetShell";
@@ -243,13 +244,15 @@ export default function DashboardComposer({ page }: { page: PageId }) {
                   isEditMode={isEditMode}
                   onRemove={() => removeWidget(entry.widgetId)}
                 >
-                  <WidgetComponent
-                    filters={debouncedFilters}
-                    size={entry.size}
-                    globalControls={globalControls}
-                    widgetState={getWidgetState(entry.widgetId)}
-                    setWidgetState={getWidgetSetter(entry.widgetId)}
-                  />
+                  <ErrorBoundary>
+                    <WidgetComponent
+                      filters={debouncedFilters}
+                      size={entry.size}
+                      globalControls={globalControls}
+                      widgetState={getWidgetState(entry.widgetId)}
+                      setWidgetState={getWidgetSetter(entry.widgetId)}
+                    />
+                  </ErrorBoundary>
                 </WidgetShell>
               </div>
             );

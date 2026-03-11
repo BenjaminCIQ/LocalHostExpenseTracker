@@ -17,6 +17,8 @@ from app.models.trip import Trip, TripTransactionOverride
 from app.pipeline.pipeline import ClassificationPipeline
 from app.schemas.transaction import (
     ExistingDuplicateCandidateRead,
+    BulkSyncTransactionKindRequest,
+    BulkSyncTransactionKindResponse,
     BulkUpdateFieldsRequest,
     BulkUpdateFieldsResponse,
     BulkClassifyRequest,
@@ -53,6 +55,7 @@ from app.services.classification_service import (
 )
 from app.services.ingestion_service import compute_dedup_hash
 from app.models.account import Account
+from app.models.external_account import ExternalFundingLink
 from app.services.transfer_reconciliation_service import (
     auto_link_high_confidence,
     find_transfer_candidates,
@@ -63,7 +66,11 @@ from app.services.transfer_reconciliation_service import (
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
-def _to_read(txn: Transaction, db: Session) -> TransactionRead:
+def _to_read(
+    txn: Transaction,
+    db: Session,
+    external_funding_txn_ids: frozenset[int] | None = None,
+) -> TransactionRead:
     pred_name = None
     final_name = None
     if txn.predicted_category_id:
@@ -72,6 +79,16 @@ def _to_read(txn: Transaction, db: Session) -> TransactionRead:
     if txn.final_category_id:
         cat = db.get(Category, txn.final_category_id)
         final_name = cat.name if cat else None
+    if external_funding_txn_ids is not None:
+        has_external = txn.id in external_funding_txn_ids
+    else:
+        has_external = (
+            db.query(ExternalFundingLink.id)
+            .filter(ExternalFundingLink.transaction_id == txn.id)
+            .limit(1)
+            .first()
+            is not None
+        )
     return TransactionRead(
         id=txn.id,
         account_id=txn.account_id,
@@ -93,6 +110,7 @@ def _to_read(txn: Transaction, db: Session) -> TransactionRead:
         transfer_confidence=txn.transfer_confidence,
         transfer_match_source=txn.transfer_match_source,
         is_internal_transfer=txn.is_internal_transfer,
+        has_external_funding_links=has_external,
         is_deleted=txn.is_deleted,
         deleted_at=txn.deleted_at,
         deleted_by_person_id=txn.deleted_by_person_id,
@@ -110,7 +128,7 @@ def list_transactions(
     account_ids: str | None = Query(None, description="Comma separated account ids"),
     person_id: int | None = None,
     classified: bool | None = None,
-    q: str | None = Query(None, description="Free-text search (merchant/description/raw_description)"),
+    q: str | None = Query(None, description="Free-text search (merchant/description/raw_description/raw_row_line)"),
     merchant: str | None = Query(None, description="Merchant/store contains"),
     category_id: int | None = Query(None, description="Matches final or predicted category"),
     category_ids: str | None = Query(None, description="Comma separated category ids"),
@@ -162,6 +180,13 @@ def list_transactions(
                 Transaction.predicted_category_id == category_id,
             )
         )
+        # When filtering by a single category, also restrict to transaction_kind
+        # matching the category's is_income so income categories show only
+        # income transactions and expense categories only expense.
+        cat = db.get(Category, category_id)
+        if cat is not None:
+            expected_kind = "income" if cat.is_income else "expense"
+            query = query.filter(Transaction.transaction_kind == expected_kind)
     elif category_ids:
         ids: list[int] = []
         for raw in category_ids.split(","):
@@ -179,6 +204,16 @@ def list_transactions(
                     Transaction.predicted_category_id.in_(ids),
                 )
             )
+            # Restrict transaction_kind to match selected categories, same as single-category.
+            cats = db.query(Category).filter(Category.id.in_(ids)).all()
+            if cats:
+                income_count = sum(1 for c in cats if c.is_income)
+                expense_count = sum(1 for c in cats if not c.is_income)
+                if income_count > 0 and expense_count == 0:
+                    query = query.filter(Transaction.transaction_kind == "income")
+                elif expense_count > 0 and income_count == 0:
+                    query = query.filter(Transaction.transaction_kind == "expense")
+                # else mixed: no transaction_kind filter
 
     def _contains(col, text: str):
         like = f"%{text.lower()}%"
@@ -193,6 +228,7 @@ def list_transactions(
                 _contains(Transaction.merchant, term),
                 _contains(Transaction.description, term),
                 _contains(Transaction.raw_description, term),
+                _contains(func.coalesce(Transaction.raw_row_line, ""), term),
             )
 
         try:
@@ -291,8 +327,17 @@ def list_transactions(
         .all()
     )
 
+    txn_ids = [t.id for t in items]
+    external_funding_ids = frozenset(
+        r[0]
+        for r in db.query(ExternalFundingLink.transaction_id)
+        .filter(ExternalFundingLink.transaction_id.in_(txn_ids))
+        .distinct()
+        .all()
+    ) if txn_ids else frozenset()
+
     return TransactionListResponse(
-        items=[_to_read(t, db) for t in items],
+        items=[_to_read(t, db, external_funding_ids) for t in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -648,6 +693,49 @@ def classify_transaction(
     )
     return _to_read(txn, db)
 
+@router.post("/bulk-sync-transaction-kind", response_model=BulkSyncTransactionKindResponse)
+def bulk_sync_transaction_kind(
+    payload: BulkSyncTransactionKindRequest,
+    db: Session = Depends(get_db),
+):
+    """Sync transaction_kind with category.is_income for selected transactions.
+    Skips transactions without a category or marked as transfers."""
+    if not payload.transaction_ids:
+        return BulkSyncTransactionKindResponse(
+            updated=0, skipped=0, skipped_no_category=0, skipped_transfer=0
+        )
+    updated = 0
+    skipped_no_category = 0
+    skipped_transfer = 0
+    for txn_id in payload.transaction_ids:
+        txn = db.get(Transaction, txn_id)
+        if not txn or txn.is_deleted:
+            continue
+        if txn.is_internal_transfer:
+            skipped_transfer += 1
+            continue
+        cat_id = txn.final_category_id
+        if not cat_id:
+            skipped_no_category += 1
+            continue
+        cat = db.get(Category, cat_id)
+        if not cat:
+            skipped_no_category += 1
+            continue
+        expected_kind = "income" if cat.is_income else "expense"
+        if txn.transaction_kind != expected_kind:
+            txn.transaction_kind = expected_kind
+            updated += 1
+    db.commit()
+    skipped = len(payload.transaction_ids) - updated - skipped_no_category - skipped_transfer
+    return BulkSyncTransactionKindResponse(
+        updated=updated,
+        skipped=skipped,
+        skipped_no_category=skipped_no_category,
+        skipped_transfer=skipped_transfer,
+    )
+
+
 @router.post("/bulk-classify", response_model=BulkClassifyResponse)
 def bulk_classify(
     payload: BulkClassifyRequest,
@@ -664,8 +752,7 @@ def bulk_classify(
         if not txn or txn.is_deleted:
             skipped += 1
             continue
-        # Guardrail: don't mutate already-classified transactions in bulk.
-        if txn.final_category_id is not None:
+        if txn.final_category_id is not None and not payload.allow_classified:
             skipped += 1
             continue
         classify_transaction_manual(

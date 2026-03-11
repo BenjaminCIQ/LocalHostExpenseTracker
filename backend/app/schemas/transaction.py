@@ -24,6 +24,7 @@ class TransactionRead(BaseModel):
     transfer_confidence: float | None = None
     transfer_match_source: str | None = None
     is_internal_transfer: bool
+    has_external_funding_links: bool = False
     is_deleted: bool = False
     deleted_at: datetime | None = None
     deleted_by_person_id: int | None = None
@@ -120,10 +121,22 @@ class SimilarTransactionCandidate(BaseModel):
     final_category_id: int | None
 
 
+class BulkSyncTransactionKindRequest(BaseModel):
+    transaction_ids: list[int]
+
+
+class BulkSyncTransactionKindResponse(BaseModel):
+    updated: int
+    skipped: int
+    skipped_no_category: int
+    skipped_transfer: int
+
+
 class BulkClassifyRequest(BaseModel):
     transaction_ids: list[int]
     category_id: int
     merchant: str | None = None
+    allow_classified: bool = False
 
 
 class BulkClassifyResponse(BaseModel):

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.account import Account
 from app.models.category import Category
+from app.models.external_account import ExternalFundingLink
 from app.models.transaction import Transaction
 from app.schemas.dashboard import (
     CategorySpend,
@@ -28,6 +29,13 @@ def get_dashboard(
     db: Session = Depends(get_db),
 ):
     query = db.query(Transaction).filter(Transaction.is_deleted.is_(False))
+    query = query.filter(Transaction.is_internal_transfer.is_(False))
+    external_linked = (
+        db.query(ExternalFundingLink.transaction_id)
+        .filter(ExternalFundingLink.transaction_id == Transaction.id)
+        .exists()
+    )
+    query = query.filter(~external_linked)
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)
     if person_id is not None:
@@ -123,6 +131,13 @@ def get_monthly_breakdown(
     starts = list(reversed(starts))
 
     tx_query = db.query(Transaction).filter(Transaction.is_deleted.is_(False))
+    tx_query = tx_query.filter(Transaction.is_internal_transfer.is_(False))
+    external_linked = (
+        db.query(ExternalFundingLink.transaction_id)
+        .filter(ExternalFundingLink.transaction_id == Transaction.id)
+        .exists()
+    )
+    tx_query = tx_query.filter(~external_linked)
     if account_id is not None:
         tx_query = tx_query.filter(Transaction.account_id == account_id)
     if person_id is not None:

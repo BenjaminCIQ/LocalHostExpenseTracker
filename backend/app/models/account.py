@@ -20,6 +20,7 @@ class Account(Base):
     person_id: Mapped[int | None] = mapped_column(
         ForeignKey("persons.id"), nullable=True
     )
+    icon_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
     )

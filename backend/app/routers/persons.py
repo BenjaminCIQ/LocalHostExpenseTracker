@@ -18,7 +18,7 @@ def create_person(payload: PersonCreate, db: Session = Depends(get_db)):
     exists = db.query(Person.id).filter(Person.name == payload.name).first()
     if exists:
         raise HTTPException(status_code=409, detail="Person name already exists")
-    p = Person(name=payload.name)
+    p = Person(name=payload.name, icon_id=payload.icon_id)
     db.add(p)
     db.commit()
     db.refresh(p)
@@ -38,6 +38,7 @@ def update_person(person_id: int, payload: PersonUpdate, db: Session = Depends(g
     if exists:
         raise HTTPException(status_code=409, detail="Person name already exists")
     p.name = payload.name
+    p.icon_id = payload.icon_id
     db.commit()
     db.refresh(p)
     return p

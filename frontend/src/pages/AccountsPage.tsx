@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { api, type Account, type Person } from "@/lib/api";
+import AccountIcon from "@/components/icons/AccountIcon";
+import { ACCOUNT_ICONS } from "@/lib/accountIcons";
 
 function personLabel(people: Person[], id?: number | null) {
   if (!id) return "(unassigned)";
@@ -21,6 +23,7 @@ export default function AccountsPage() {
     currency: "EUR",
     owner: "",
     person_id: null,
+    icon_id: null,
   });
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -59,8 +62,10 @@ export default function AccountsPage() {
         currency: "EUR",
         owner: "",
         person_id: null,
+        icon_id: null,
       });
       await load();
+      window.dispatchEvent(new Event("accounts-updated"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Create failed");
     }
@@ -82,6 +87,7 @@ export default function AccountsPage() {
       setEditingId(null);
       setEditAcc(null);
       await load();
+      window.dispatchEvent(new Event("accounts-updated"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Update failed");
     }
@@ -166,6 +172,26 @@ export default function AccountsPage() {
               <Button onClick={create} disabled={!newAcc.name?.trim()}>
                 Add account
               </Button>
+            </div>
+            <div className="md:col-span-6">
+              <label className="text-sm text-muted-foreground">Icon</label>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {ACCOUNT_ICONS.map(({ id, emoji, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    title={label}
+                    onClick={() =>
+                      setNewAcc((s) => ({ ...s, icon_id: newAcc.icon_id === id ? null : id }))
+                    }
+                    className={`rounded-md p-1.5 text-lg transition-colors ${
+                      newAcc.icon_id === id ? "bg-primary/20 ring-1 ring-primary/40" : "hover:bg-muted"
+                    }`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </CardContent>
@@ -252,6 +278,29 @@ export default function AccountsPage() {
                           ))}
                         </Select>
                       </div>
+                      <div className="md:col-span-6">
+                        <label className="text-sm text-muted-foreground">Icon</label>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {ACCOUNT_ICONS.map(({ id, emoji, label }) => (
+                            <button
+                              key={id}
+                              type="button"
+                              title={label}
+                              onClick={() =>
+                                setEditAcc((s) => ({
+                                  ...(s ?? {}),
+                                  icon_id: editAcc?.icon_id === id ? null : id,
+                                }))
+                              }
+                              className={`rounded-md p-1.5 text-lg transition-colors ${
+                                editAcc?.icon_id === id ? "bg-primary/20 ring-1 ring-primary/40" : "hover:bg-muted"
+                              }`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <div className="md:col-span-6 flex gap-2 justify-end">
                         <Button onClick={save} disabled={!editAcc.name?.trim()}>
                           Save
@@ -269,11 +318,14 @@ export default function AccountsPage() {
                     </div>
                   ) : (
                     <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <div className="font-medium">{a.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {a.bank_name ? `${a.bank_name} • ` : ""}
-                          {a.account_type} • {a.currency} • {personLabel(people, a.person_id)}
+                      <div className="flex items-center gap-2">
+                        <AccountIcon iconId={a.icon_id} className="h-5 w-5 shrink-0" />
+                        <div>
+                          <div className="font-medium">{a.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {a.bank_name ? `${a.bank_name} • ` : ""}
+                            {a.account_type} • {a.currency} • {personLabel(people, a.person_id)}
+                          </div>
                         </div>
                       </div>
                       <Button variant="outline" onClick={() => startEdit(a)}>

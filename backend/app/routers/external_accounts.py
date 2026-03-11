@@ -2,7 +2,7 @@ from datetime import date
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -26,7 +26,6 @@ from app.schemas.external_account import (
     ExternalValuationSnapshotRead,
 )
 from app.services.external_account_service import get_external_reconciliation
-from app.services.transfer_reconciliation_service import is_transfer_like_transaction
 
 router = APIRouter(prefix="/api/external-accounts", tags=["external-accounts"])
 
@@ -38,7 +37,14 @@ def list_external_accounts(
 ):
     q = db.query(ExternalAccount)
     if person_id is not None:
-        q = q.filter(ExternalAccount.person_id == person_id)
+        person = db.get(Person, person_id)
+        if person and person.name:
+            owner_match = func.lower(func.trim(func.coalesce(ExternalAccount.owner, ""))) == func.lower(
+                func.trim(person.name)
+            )
+            q = q.filter(or_(ExternalAccount.person_id == person_id, owner_match))
+        else:
+            q = q.filter(ExternalAccount.person_id == person_id)
     return q.order_by(ExternalAccount.name.asc()).all()
 
 
@@ -136,11 +142,10 @@ def create_funding_link(
     if txn is None:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    transfer_like = is_transfer_like_transaction(txn)
-    if not transfer_like and not payload.override_validation:
+    if txn.amount == 0 and not payload.override_validation:
         raise HTTPException(
             status_code=400,
-            detail="Transaction is not transfer-like. Use override_validation to force link.",
+            detail="Transaction has zero amount. Use override_validation to force link.",
         )
 
     existing_total = (

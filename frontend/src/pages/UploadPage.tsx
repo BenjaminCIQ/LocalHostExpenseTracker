@@ -3,6 +3,7 @@ import { Upload, CheckCircle, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { api, type Account, type ImportProfile, type ImportResult, type PotentialDuplicate } from "@/lib/api";
+import AccountIcon from "@/components/icons/AccountIcon";
 
 export default function UploadPage({ embedded = false }: { embedded?: boolean }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -107,13 +108,16 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
           {accounts.length === 0 ? (
             <p className="text-muted-foreground">No accounts found.</p>
           ) : (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {accounts.map((acc) => (
                 <Button
                   key={acc.id}
                   variant={selectedAccount === acc.id ? "default" : "outline"}
                   onClick={() => setSelectedAccount(acc.id)}
+                  title={acc.name}
+                  className="flex items-center gap-2"
                 >
+                  <AccountIcon iconId={acc.icon_id} className="h-4 w-4 shrink-0" />
                   {acc.name}
                 </Button>
               ))}

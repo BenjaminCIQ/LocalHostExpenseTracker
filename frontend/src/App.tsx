@@ -17,6 +17,7 @@ import TransferLinkingRulesPage from "@/pages/TransferLinkingRulesPage";
 import AdminPage from "@/pages/AdminPage";
 import LoginPage from "@/pages/LoginPage";
 import SetPasswordPage from "@/pages/SetPasswordPage";
+import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 
@@ -39,6 +40,7 @@ function PublicOnlyRoute({ children }: { children: ReactElement }) {
 export default function App() {
   return (
     <ThemeProvider>
+      <Toaster position="top-center" richColors closeButton />
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />

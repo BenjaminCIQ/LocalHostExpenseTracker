@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, false, or_
+from sqlalchemy import and_, false, func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -169,6 +169,7 @@ def list_trip_transactions(
                 Transaction.merchant.ilike(like),
                 Transaction.description.ilike(like),
                 Transaction.raw_description.ilike(like),
+                func.coalesce(Transaction.raw_row_line, "").ilike(like),
             )
         )
 

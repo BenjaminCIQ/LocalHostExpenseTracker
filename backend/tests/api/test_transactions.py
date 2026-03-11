@@ -253,6 +253,138 @@ def test_classify_transaction_and_filters(client, sample_csv: str):
     unclassified = client.get("/api/transactions/?classified=false").json()
     assert unclassified["total"] == 2
 
+    # Classify syncs transaction_kind with category.is_income
+    assert updated["transaction_kind"] == "expense"  # Groceries etc are expense categories
+
+
+def test_category_filter_matches_transaction_kind(client):
+    """Filtering by single category also filters by transaction_kind to match category.is_income."""
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-01",
+            "amount": 2000.0,
+            "description": "Salary",
+            "merchant": "Employer",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-02",
+            "amount": -50.0,
+            "description": "Groceries",
+            "merchant": "Store",
+            "currency": "EUR",
+        },
+    )
+    cats = client.get("/api/categories/").json()
+    salary_id = next(c["id"] for c in cats if c["name"] == "Salary")
+    groceries_id = next(c["id"] for c in cats if c["name"] == "Groceries")
+
+    txns = client.get("/api/transactions/").json()["items"]
+    salary_txn = next(t for t in txns if t["amount"] > 0)
+    expense_txn = next(t for t in txns if t["amount"] < 0)
+
+    client.post(
+        f"/api/transactions/{salary_txn['id']}/classify",
+        json={"category_id": salary_id, "merchant": "Employer"},
+    )
+    client.post(
+        f"/api/transactions/{expense_txn['id']}/classify",
+        json={"category_id": groceries_id, "merchant": "Store"},
+    )
+
+    # Filter by income category (Salary) - should only return income transactions
+    by_salary = client.get(f"/api/transactions/?category_id={salary_id}").json()
+    assert by_salary["total"] == 1
+    assert by_salary["items"][0]["transaction_kind"] == "income"
+
+    # Filter by expense category (Groceries) - should only return expense transactions
+    by_groceries = client.get(f"/api/transactions/?category_id={groceries_id}").json()
+    assert by_groceries["total"] == 1
+    assert by_groceries["items"][0]["transaction_kind"] == "expense"
+
+
+def test_bulk_sync_transaction_kind(client):
+    """Bulk sync updates transaction_kind to match category.is_income."""
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-01",
+            "amount": 2000.0,
+            "description": "Salary",
+            "merchant": "Employer",
+            "currency": "EUR",
+        },
+    )
+    client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-02",
+            "amount": -50.0,
+            "description": "Groceries",
+            "merchant": "Store",
+            "currency": "EUR",
+        },
+    )
+    cats = client.get("/api/categories/").json()
+    salary_id = next(c["id"] for c in cats if c["name"] == "Salary")
+    groceries_id = next(c["id"] for c in cats if c["name"] == "Groceries")
+
+    txns = client.get("/api/transactions/").json()["items"]
+    salary_txn = next(t for t in txns if t["amount"] > 0)
+    expense_txn = next(t for t in txns if t["amount"] < 0)
+
+    # Manually set wrong transaction_kind (simulate legacy data)
+    client.patch(
+        f"/api/transactions/{salary_txn['id']}",
+        json={"transaction_kind": "expense"},
+    )
+    client.patch(
+        f"/api/transactions/{expense_txn['id']}",
+        json={"transaction_kind": "income"},
+    )
+
+    # Classify to set category
+    client.post(
+        f"/api/transactions/{salary_txn['id']}/classify",
+        json={"category_id": salary_id, "merchant": "Employer"},
+    )
+    client.post(
+        f"/api/transactions/{expense_txn['id']}/classify",
+        json={"category_id": groceries_id, "merchant": "Store"},
+    )
+
+    # Override to wrong kind again (classify would have fixed it)
+    client.patch(
+        f"/api/transactions/{salary_txn['id']}",
+        json={"transaction_kind": "expense"},
+    )
+    client.patch(
+        f"/api/transactions/{expense_txn['id']}",
+        json={"transaction_kind": "income"},
+    )
+
+    res = client.post(
+        "/api/transactions/bulk-sync-transaction-kind",
+        json={"transaction_ids": [salary_txn["id"], expense_txn["id"]]},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["updated"] == 2
+    assert body["skipped"] == 0
+
+    after = client.get("/api/transactions/").json()["items"]
+    by_id = {t["id"]: t for t in after}
+    assert by_id[salary_txn["id"]]["transaction_kind"] == "income"
+    assert by_id[expense_txn["id"]]["transaction_kind"] == "expense"
+
 
 def test_classify_invalid_category_404(client, sample_csv: str):
     _upload(client, sample_csv)
@@ -652,7 +784,8 @@ def test_analytics_trip_include_exclusion_and_trip_scoping(client, db_session):
     )
     assert scoped.status_code == 200
     scoped_expenses = sum(point["expenses"] for point in scoped.json()["points"])
-    assert abs(scoped_expenses - 40.0) < 0.001
+    # Excluding trip_a excludes its date window (Feb 1-10), so both t1 and t2 are excluded
+    assert abs(scoped_expenses) < 0.001
 
     all_trip_excluded = client.get(
         "/api/analytics/timeseries?granularity=monthly&exclude_trip_included=true"

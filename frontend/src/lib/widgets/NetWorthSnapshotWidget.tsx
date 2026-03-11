@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Account, type ExternalAccount, type ExternalNetWorthItem, type NetWorthItem } from "@/lib/api";
+import AccountIcon from "@/components/icons/AccountIcon";
 import { formatCurrency } from "@/lib/utils";
 import { registerWidget } from "@/lib/widgets/registry";
 import type { WidgetProps } from "@/lib/widgets/types";
@@ -11,6 +12,7 @@ type DisplayRow = {
   owner: string;
   source: "internal" | "external";
   accountGroup: string;
+  iconId?: string | null;
 };
 
 function DonutStat({
@@ -89,6 +91,7 @@ function NetWorthSnapshotWidget({ filters }: WidgetProps) {
 
   const rows = useMemo<DisplayRow[]>(() => {
     const ownerByAccountId = new Map<number, string>(accounts.map((a) => [a.id, a.owner || "Unknown"]));
+    const iconByAccountId = new Map<number, string | null>(accounts.map((a) => [a.id, a.icon_id ?? null]));
     const ownerByExternalId = new Map<number, string>(externalAccounts.map((a) => [a.id, a.owner || "Unknown"]));
     const internalRows: DisplayRow[] = internalItems.map((item) => ({
       id: `i-${item.account_id}`,
@@ -97,6 +100,7 @@ function NetWorthSnapshotWidget({ filters }: WidgetProps) {
       owner: ownerByAccountId.get(item.account_id) ?? "Unknown",
       source: "internal",
       accountGroup: item.account_group,
+      iconId: iconByAccountId.get(item.account_id),
     }));
     const extRows: DisplayRow[] = externalItems.map((item) => {
       const signedBalance = item.account_group === "liability" ? -Math.abs(item.latest_value) : item.latest_value;
@@ -171,9 +175,14 @@ function NetWorthSnapshotWidget({ filters }: WidgetProps) {
       <div className="space-y-2">
         {topAccounts.map((row) => (
           <div key={row.id} className="grid gap-2 rounded-md border border-border p-3 md:grid-cols-3">
-            <div>
-              <div className="font-medium">{row.name}</div>
-              <div className="text-xs text-muted-foreground capitalize">{row.accountGroup || "other"}</div>
+            <div className="flex items-center gap-2">
+              {row.source === "internal" && (
+                <AccountIcon iconId={row.iconId} title={row.name} className="h-4 w-4 shrink-0" />
+              )}
+              <div>
+                <div className="font-medium">{row.name}</div>
+                <div className="text-xs text-muted-foreground capitalize">{row.accountGroup || "other"}</div>
+              </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">Balance</div>

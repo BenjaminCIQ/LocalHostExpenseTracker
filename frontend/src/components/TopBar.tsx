@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, type Person } from "@/lib/api";
+import PersonIcon from "@/components/icons/PersonIcon";
 import { useAuth } from "@/lib/auth";
 
 export default function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
@@ -16,6 +17,12 @@ export default function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => vo
 
   useEffect(() => {
     api.getPersons().then(setPeople).catch(() => setPeople([]));
+  }, []);
+
+  useEffect(() => {
+    const handler = () => api.getPersons().then(setPeople).catch(() => setPeople([]));
+    window.addEventListener("people-updated", handler);
+    return () => window.removeEventListener("people-updated", handler);
   }, []);
 
   useEffect(() => {
@@ -47,6 +54,13 @@ export default function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => vo
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           <div className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1">
             <span className="text-xs text-muted-foreground">View</span>
+            {selectedPersonId && (
+              <PersonIcon
+                iconId={people.find((p) => p.id === selectedPersonId)?.icon_id}
+                title={people.find((p) => p.id === selectedPersonId)?.name}
+                className="h-4 w-4 shrink-0"
+              />
+            )}
             <select
               className="h-8 rounded-md border border-border bg-background px-2 text-sm"
               value={selectedPersonId ?? ""}

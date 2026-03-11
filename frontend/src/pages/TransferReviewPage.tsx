@@ -53,6 +53,15 @@ export default function TransferReviewPage({ embedded = false }: { embedded?: bo
   const [dateWindowDays, setDateWindowDays] = useState(initialDefaults.dateWindowDays);
   const [autoConfidence, setAutoConfidence] = useState(initialDefaults.autoConfidence);
 
+  async function loadRules() {
+    try {
+      const data = await api.getTransferLinkingRules();
+      setRules(data);
+    } catch {
+      setRules([]);
+    }
+  }
+
   async function load() {
     setLoading(true);
     setError("");

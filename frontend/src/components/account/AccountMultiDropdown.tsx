@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Account } from "@/lib/api";
+import AccountIcon from "@/components/icons/AccountIcon";
 
 export default function AccountMultiDropdown({
   accounts,
@@ -76,6 +77,7 @@ export default function AccountMultiDropdown({
             {filtered.map((acc) => (
               <label key={acc.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50">
                 <input type="checkbox" checked={selectedIds.includes(acc.id)} onChange={() => toggleId(acc.id)} />
+                <AccountIcon iconId={acc.icon_id} title={acc.name} className="h-4 w-4 shrink-0" />
                 <span className="truncate">{acc.name}</span>
                 <span className="text-xs text-muted-foreground truncate">{acc.bank_name}</span>
               </label>

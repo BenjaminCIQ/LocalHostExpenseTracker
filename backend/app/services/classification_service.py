@@ -3,6 +3,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.events.bus import TransactionClassifiedEvent, event_bus
+from app.models.category import Category
 from app.ml.classifier import MLClassifier
 from app.ml.trainer import retrain_classifier, should_retrain
 from app.models.classification_log import ClassificationLog
@@ -28,6 +29,13 @@ def classify_transaction_manual(
     transaction.final_category_id = category_id
     transaction.classification_source = "human"
     transaction.confidence = 1.0
+
+    # Sync transaction_kind with category.is_income so filtering by category
+    # yields consistent income/expense results. Skip for transfers.
+    if not transaction.is_internal_transfer:
+        cat = db.get(Category, category_id)
+        if cat is not None:
+            transaction.transaction_kind = "income" if cat.is_income else "expense"
 
     if merchant is not None:
         transaction.merchant = merchant

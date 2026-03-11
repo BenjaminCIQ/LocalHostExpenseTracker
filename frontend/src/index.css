@@ -183,6 +183,18 @@
   --color-card-foreground: #4c0519;
 }
 
+/* External transfer badge: dark text on light amber for readability */
+.badge-external-transfer {
+  color: #0a0a0a !important;
+}
+[data-theme="dark"] .badge-external-transfer,
+[data-theme="nord"] .badge-external-transfer,
+[data-theme="dracula"] .badge-external-transfer,
+[data-theme="ember"] .badge-external-transfer,
+[data-theme="midnight"] .badge-external-transfer {
+  color: #e2e8f0 !important;
+}
+
 body {
   font-family:
     "Inter",

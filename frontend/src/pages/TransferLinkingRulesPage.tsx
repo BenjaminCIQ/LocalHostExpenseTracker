@@ -9,6 +9,7 @@ import {
   type TransferLinkingRule,
   type TransferLinkingRuleCreate,
 } from "@/lib/api";
+import AccountIcon from "@/components/icons/AccountIcon";
 import { useSelectedPersonId } from "@/lib/personFilter";
 import { Link2, Play } from "lucide-react";
 
@@ -177,9 +178,17 @@ export default function TransferLinkingRulesPage() {
               />
             </div>
             <div />
-            <div>
-              <label className="text-sm text-muted-foreground">Source account (outflow)</label>
-              <select
+            <div className="flex items-end gap-2">
+              {form.source_account_id && (
+                <AccountIcon
+                  iconId={accounts.find((a) => a.id === form.source_account_id)?.icon_id}
+                  title={accounts.find((a) => a.id === form.source_account_id)?.name}
+                  className="h-4 w-4 shrink-0 mb-1"
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <label className="text-sm text-muted-foreground">Source account (outflow)</label>
+                <select
                 className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
                 value={form.source_account_id || ""}
                 onChange={(e) => setForm((s) => ({ ...s, source_account_id: Number(e.target.value) || 0 }))}
@@ -189,10 +198,19 @@ export default function TransferLinkingRulesPage() {
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
+              </div>
             </div>
-            <div>
-              <label className="text-sm text-muted-foreground">Target account (inflow)</label>
-              <select
+            <div className="flex items-end gap-2">
+              {form.target_account_id && (
+                <AccountIcon
+                  iconId={accounts.find((a) => a.id === form.target_account_id)?.icon_id}
+                  title={accounts.find((a) => a.id === form.target_account_id)?.name}
+                  className="h-4 w-4 shrink-0 mb-1"
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <label className="text-sm text-muted-foreground">Target account (inflow)</label>
+                <select
                 className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
                 value={form.target_account_id || ""}
                 onChange={(e) => setForm((s) => ({ ...s, target_account_id: Number(e.target.value) || 0 }))}
@@ -202,6 +220,7 @@ export default function TransferLinkingRulesPage() {
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
+              </div>
             </div>
             <div>
               <label className="text-sm text-muted-foreground">Source keywords</label>
@@ -290,8 +309,12 @@ export default function TransferLinkingRulesPage() {
                     <Badge variant={r.enabled ? "default" : "secondary"}>
                       {r.enabled ? "On" : "Off"}
                     </Badge>
-                    <span className="text-sm text-muted-foreground">
-                      {accountById(r.source_account_id)?.name ?? r.source_account_id} → {accountById(r.target_account_id)?.name ?? r.target_account_id}
+                    <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <AccountIcon iconId={accountById(r.source_account_id)?.icon_id} className="h-3.5 w-3.5" />
+                      {accountById(r.source_account_id)?.name ?? r.source_account_id}
+                      {" → "}
+                      <AccountIcon iconId={accountById(r.target_account_id)?.icon_id} className="h-3.5 w-3.5" />
+                      {accountById(r.target_account_id)?.name ?? r.target_account_id}
                     </span>
                   </div>
                   <div className="flex gap-2">

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { CategoryMultiSelect } from "@/components/widget-controls/CategoryMultiSelect";
 import { ControlsSection } from "@/components/widget-controls/ControlsSection";
 import { MerchantMultiSelect } from "@/components/widget-controls/MerchantMultiSelect";
-import { api, type AnalyticsCategoryAmount, type AnalyticsTimeseriesPoint, type MerchantRankingItem, type Transaction, type Trip } from "@/lib/api";
+import AccountIcon from "@/components/icons/AccountIcon";
+import PersonIcon from "@/components/icons/PersonIcon";
+import { api, type Account, type AnalyticsCategoryAmount, type AnalyticsTimeseriesPoint, type MerchantRankingItem, type Person, type Transaction, type Trip } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
 import { formatCurrency } from "@/lib/utils";
 import { toAnalyticsParams } from "@/lib/widgets/helpers";
@@ -40,14 +42,32 @@ function isWithin(iso: string, start: string, end: string): boolean {
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+function safeNumberArray(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+}
+
+function safeStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is string => typeof x === "string");
+}
+
 function SpendingHeatmapWidget({ filters, globalControls, widgetState, setWidgetState }: WidgetProps) {
   const { chartColors } = useTheme();
-  const [showControls, setShowControls] = useState<boolean>((widgetState?.showControls as boolean) ?? false);
-  const [showAdvanced, setShowAdvanced] = useState<boolean>((widgetState?.showAdvanced as boolean) ?? false);
-  const [categorySearch, setCategorySearch] = useState<string>((widgetState?.categorySearch as string) ?? "");
-  const [merchantSearch, setMerchantSearch] = useState<string>((widgetState?.merchantSearch as string) ?? "");
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>((widgetState?.selectedCategoryIds as number[]) ?? []);
-  const [selectedMerchantNames, setSelectedMerchantNames] = useState<string[]>((widgetState?.selectedMerchantNames as string[]) ?? []);
+  const [showControls, setShowControls] = useState<boolean>(Boolean(widgetState?.showControls ?? false));
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(Boolean(widgetState?.showAdvanced ?? false));
+  const [categorySearch, setCategorySearch] = useState<string>(
+    typeof widgetState?.categorySearch === "string" ? widgetState.categorySearch : ""
+  );
+  const [merchantSearch, setMerchantSearch] = useState<string>(
+    typeof widgetState?.merchantSearch === "string" ? widgetState.merchantSearch : ""
+  );
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>(
+    () => safeNumberArray(widgetState?.selectedCategoryIds)
+  );
+  const [selectedMerchantNames, setSelectedMerchantNames] = useState<string[]>(
+    () => safeStringArray(widgetState?.selectedMerchantNames)
+  );
 
   const [rows, setRows] = useState<AnalyticsTimeseriesPoint[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<AnalyticsCategoryAmount[]>([]);
@@ -112,6 +132,14 @@ function SpendingHeatmapWidget({ filters, globalControls, widgetState, setWidget
       .catch(() => setRows([]));
   }, [filters, globalControls, selectedCategoryIds, selectedMerchantNames]);
 
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
+
+  useEffect(() => {
+    api.getAccounts().then(setAccounts).catch(() => setAccounts([]));
+    api.getPersons().then(setPeople).catch(() => setPeople([]));
+  }, []);
+
   useEffect(() => {
     if (!selectedDay) return;
     api
@@ -123,11 +151,15 @@ function SpendingHeatmapWidget({ filters, globalControls, widgetState, setWidget
         account_id: filters.accountId ?? undefined,
         person_id: filters.personId ?? undefined,
         category_ids: selectedCategoryIds.length ? selectedCategoryIds : undefined,
+        include_transfers: false,
       })
       .then((res) => {
+        const nonTransfers = res.items.filter(
+          (t) => !t.is_internal_transfer && !(t.has_external_funding_links ?? false)
+        );
         const filtered = selectedMerchantNames.length
-          ? res.items.filter((item) => selectedMerchantNames.includes(item.merchant))
-          : res.items;
+          ? nonTransfers.filter((item) => selectedMerchantNames.includes(item.merchant ?? ""))
+          : nonTransfers;
         setSelectedDayTransactions(filtered);
       })
       .catch(() => setSelectedDayTransactions([]));
@@ -314,15 +346,31 @@ function SpendingHeatmapWidget({ filters, globalControls, widgetState, setWidget
           </div>
           <div className="space-y-1 text-xs">
             {selectedDayTransactions.length ? (
-              selectedDayTransactions.map((txn) => (
-                <div key={txn.id} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{txn.merchant || "Unknown"}</div>
-                    <div className="truncate text-muted-foreground">{txn.description}</div>
+              selectedDayTransactions.map((txn) => {
+                const acc = accounts.find((a) => a.id === txn.account_id);
+                const person = acc?.person_id ? people.find((p) => p.id === acc.person_id) : null;
+                return (
+                  <div key={txn.id} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-1">
+                        <PersonIcon iconId={person?.icon_id} title={person?.name ?? "Unassigned"} className="text-sm" />
+                        <AccountIcon iconId={acc?.icon_id} title={acc?.name ?? "Unknown"} className="text-sm" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{txn.merchant || "Unknown"}</div>
+                        <div className="truncate text-muted-foreground">{txn.description}</div>
+                      </div>
+                    </div>
+                    <div
+                      className={`whitespace-nowrap font-medium ${
+                        txn.amount >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      {txn.amount >= 0 ? "+" : ""}{formatCurrency(txn.amount)}
+                    </div>
                   </div>
-                  <div className="whitespace-nowrap">{formatCurrency(Math.abs(txn.amount))}</div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="text-muted-foreground">No transactions for this day and filter selection.</div>
             )}

@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import CategorySelect from "@/components/category/CategorySelect";
-import { api, type Category, type CategoryCreate } from "@/lib/api";
+import { toast } from "sonner";
+import { api, ApiError, type Category, type CategoryCreate } from "@/lib/api";
 import { buildCategoryTree, flattenCategoryTree } from "@/lib/categoryHierarchy";
 
 export default function CategoriesPage() {
@@ -84,6 +85,7 @@ export default function CategoriesPage() {
       await api.createCategory({ ...newCat, name: newCat.name.trim() });
       setNewCat({ name: "", parent_id: null, is_income: false });
       await load();
+      window.dispatchEvent(new Event("categories-updated"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Create failed");
     }
@@ -110,6 +112,7 @@ export default function CategoriesPage() {
       await api.updateCategory(editingId, { ...editCat, name: editCat.name.trim() });
       cancelEdit();
       await load();
+      window.dispatchEvent(new Event("categories-updated"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Update failed");
     }
@@ -117,11 +120,18 @@ export default function CategoriesPage() {
 
   const handleDelete = async (id: number) => {
     if (!confirm("Delete this category?")) return;
+    setError("");
     try {
       await api.deleteCategory(id);
       await load();
+      window.dispatchEvent(new Event("categories-updated"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed");
+      const msg = e instanceof Error ? e.message : "Delete failed";
+      setError(msg);
+      toast.error(msg);
+      if (e instanceof ApiError && e.debug) {
+        console.error("Category delete blocked - details:", e.debug);
+      }
     }
   };
 
@@ -131,7 +141,14 @@ export default function CategoriesPage() {
         <h2 className="text-2xl font-bold">Categories</h2>
       </div>
 
-      {error && <p className="text-destructive">{error}</p>}
+      {error && (
+        <div
+          className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          role="alert"
+        >
+          {error}
+        </div>
+      )}
 
       <Card>
         <CardHeader>

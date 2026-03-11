@@ -21,6 +21,7 @@ import {
   api,
   type Account,
   type ExistingDuplicateCandidate,
+  type Person,
   type Transaction,
   type TransactionListResponse,
   type Category,
@@ -31,6 +32,8 @@ import {
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getCategoryIcon } from "@/lib/categoryIcons";
+import PersonIcon from "@/components/icons/PersonIcon";
+import AccountIcon from "@/components/icons/AccountIcon";
 import { useSelectedPersonId } from "@/lib/personFilter";
 import { useAuth } from "@/lib/auth";
 import TransferReviewPage from "@/pages/TransferReviewPage";
@@ -242,6 +245,7 @@ export default function TransactionsPage() {
   const [data, setData] = useState<TransactionListResponse | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [duplicateCandidates, setDuplicateCandidates] = useState<ExistingDuplicateCandidate[]>([]);
   const [duplicateTxnById, setDuplicateTxnById] = useState<Record<number, Transaction>>({});
@@ -378,6 +382,15 @@ export default function TransactionsPage() {
   const [manualSaving, setManualSaving] = useState(false);
   const [linkSourceTxnId, setLinkSourceTxnId] = useState<number | null>(null);
   const [linkDropTargetTxnId, setLinkDropTargetTxnId] = useState<number | null>(null);
+  const [selectedTxnIds, setSelectedTxnIds] = useState<Set<number>>(new Set());
+  const [bulkSyncLoading, setBulkSyncLoading] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditCategoryId, setBulkEditCategoryId] = useState<number | "">("");
+  const [bulkEditMerchant, setBulkEditMerchant] = useState("");
+  const [bulkEditDescription, setBulkEditDescription] = useState("");
+  const [bulkEditRawDescription, setBulkEditRawDescription] = useState("");
+  const [bulkEditAllowClassified, setBulkEditAllowClassified] = useState(true);
+  const [bulkEditSaving, setBulkEditSaving] = useState(false);
 
   const selectedCategoryNames = useMemo(
     () =>
@@ -393,6 +406,15 @@ export default function TransactionsPage() {
         .map((a) => a.name),
     [accounts, accountFilterIds]
   );
+
+  const accountById = useMemo(() => {
+    if (!Array.isArray(accounts)) return new Map<number, Account>();
+    return new Map(accounts.map((a) => [a.id, a]));
+  }, [accounts]);
+  const personById = useMemo(() => {
+    if (!Array.isArray(people)) return new Map<number, Person>();
+    return new Map(people.map((p) => [p.id, p]));
+  }, [people]);
 
   function buildTransferLinkWarnings(source: Transaction, target: Transaction): string[] {
     const warnings: string[] = [];
@@ -607,7 +629,10 @@ export default function TransactionsPage() {
   }, [data, focusTxnId]);
 
   useEffect(() => {
-    api.getCategories().then(setCategories);
+    const load = () => api.getCategories().then(setCategories);
+    load();
+    window.addEventListener("categories-updated", load);
+    return () => window.removeEventListener("categories-updated", load);
   }, []);
 
   useEffect(() => {
@@ -685,10 +710,25 @@ export default function TransactionsPage() {
   }, [activeTab, loadDuplicateReview]);
 
   useEffect(() => {
-    api.getAccounts().then((accs) => {
-      setAccounts(accs);
-      if (manualAccountId === null && accs.length > 0) setManualAccountId(accs[0].id);
-    });
+    const loadAccountsAndPeople = () => {
+      Promise.all([api.getAccounts(), api.getPersons()])
+        .then(([accs, persons]) => {
+          setAccounts(Array.isArray(accs) ? accs : []);
+          setPeople(Array.isArray(persons) ? persons : []);
+          if (manualAccountId === null && Array.isArray(accs) && accs.length > 0) setManualAccountId(accs[0].id);
+        })
+        .catch(() => {
+          setAccounts([]);
+          setPeople([]);
+        });
+    };
+    loadAccountsAndPeople();
+    window.addEventListener("people-updated", loadAccountsAndPeople);
+    window.addEventListener("accounts-updated", loadAccountsAndPeople);
+    return () => {
+      window.removeEventListener("people-updated", loadAccountsAndPeople);
+      window.removeEventListener("accounts-updated", loadAccountsAndPeople);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1797,6 +1837,56 @@ export default function TransactionsPage() {
               </Button>
             </div>
           )}
+          {selectedTxnIds.size > 0 && activeTab === "transactions" && (
+            <div className="flex items-center justify-between gap-3 border-b border-border bg-primary/10 px-3 py-2 text-sm">
+              <span>
+                <span className="font-mono font-medium">{selectedTxnIds.size}</span> transaction(s) selected
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSelectedTxnIds(new Set())}
+                >
+                  Clear selection
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setBulkEditCategoryId("");
+                    setBulkEditMerchant("");
+                    setBulkEditDescription("");
+                    setBulkEditRawDescription("");
+                    setBulkEditOpen(true);
+                  }}
+                >
+                  Bulk edit
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={bulkSyncLoading}
+                  onClick={async () => {
+                    setBulkSyncLoading(true);
+                    try {
+                      await api.bulkSyncTransactionKind({
+                        transaction_ids: Array.from(selectedTxnIds),
+                      });
+                      setError("");
+                      setSelectedTxnIds(new Set());
+                      load();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Bulk sync failed");
+                    } finally {
+                      setBulkSyncLoading(false);
+                    }
+                  }}
+                >
+                  {bulkSyncLoading ? "Syncing…" : "Sync transaction_kind with category"}
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="md:hidden p-3 space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <Select
@@ -1838,10 +1928,43 @@ export default function TransactionsPage() {
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-medium">{formatDate(txn.date)}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {txn.merchant || "Unknown merchant"}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedTxnIds.has(txn.id)}
+                      onChange={(e) => {
+                        setSelectedTxnIds((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(txn.id);
+                          else next.delete(txn.id);
+                          return next;
+                        });
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    {(() => {
+                      const acc = accountById.get(txn.account_id);
+                      const person = acc?.person_id ? personById.get(acc.person_id) : null;
+                      return (
+                        <div className="flex items-center gap-1 shrink-0 text-base">
+                          <PersonIcon
+                            iconId={person?.icon_id}
+                            title={person?.name ?? "Unassigned"}
+                            className="text-base"
+                          />
+                          <AccountIcon
+                            iconId={acc?.icon_id}
+                            title={acc?.name ?? "Unknown account"}
+                            className="text-base"
+                          />
+                        </div>
+                      );
+                    })()}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium shrink-0">{formatDate(txn.date)}</div>
+                      <div className="text-sm text-muted-foreground truncate">
+                        {txn.merchant || "Unknown merchant"}
+                      </div>
                     </div>
                   </div>
                   <div
@@ -1964,10 +2087,33 @@ export default function TransactionsPage() {
             <table className="w-full table-fixed text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="w-44 text-left p-3 font-medium">
+                  <th className="w-10 py-3 pl-3 pr-1">
+                    <input
+                      type="checkbox"
+                      checked={data?.items.length ? data.items.every((t) => selectedTxnIds.has(t.id)) : false}
+                      onChange={(e) => {
+                        if (!data?.items) return;
+                        if (e.target.checked) {
+                          setSelectedTxnIds((prev) => {
+                            const next = new Set(prev);
+                            data.items.forEach((t) => next.add(t.id));
+                            return next;
+                          });
+                        } else {
+                          setSelectedTxnIds((prev) => {
+                            const next = new Set(prev);
+                            data.items.forEach((t) => next.delete(t.id));
+                            return next;
+                          });
+                        }
+                      }}
+                      title="Select all on page"
+                    />
+                  </th>
+                  <th className="w-52 text-left py-3 pl-3 pr-6 font-medium">
                     <button onClick={() => toggleSort("date")}>Date {sortBy === "date" ? (sortDir === "asc" ? "↑" : "↓") : ""}</button>
                   </th>
-                  <th className="text-left p-3 font-medium">
+                  <th className="text-left py-3 pr-3 pl-6 font-medium">
                     <div className="flex flex-wrap items-center gap-2">
                       <button onClick={() => toggleSort("description")}>
                         Description {sortBy === "description" ? (sortDir === "asc" ? "↑" : "↓") : ""}
@@ -2016,6 +2162,8 @@ export default function TransactionsPage() {
                         void linkByDrop(txn);
                       }}
                       className={`border-b transition-colors ${
+                        txn.has_external_funding_links ? "border-l-4 border-l-amber-500" : ""
+                      } ${
                         isLinkSource
                           ? "cursor-grab bg-primary/10"
                           : isLinkDropTarget
@@ -2025,8 +2173,41 @@ export default function TransactionsPage() {
                               : "hover:bg-muted/30"
                       }`}
                     >
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
+                      <td className="py-3 pl-3 pr-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedTxnIds.has(txn.id)}
+                          onChange={(e) => {
+                            setSelectedTxnIds((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(txn.id);
+                              else next.delete(txn.id);
+                              return next;
+                            });
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </td>
+                      <td className="py-3 pl-3 pr-6 whitespace-nowrap">
+                        <div className="flex items-center gap-3">
+                          {(() => {
+                            const acc = accountById.get(txn.account_id);
+                            const person = acc?.person_id ? personById.get(acc.person_id) : null;
+                            return (
+                              <div className="flex items-center gap-1 shrink-0 text-base">
+                                <PersonIcon
+                                  iconId={person?.icon_id}
+                                  title={person?.name ?? "Unassigned"}
+                                  className="text-base"
+                                />
+                                <AccountIcon
+                                  iconId={acc?.icon_id}
+                                  title={acc?.name ?? "Unknown account"}
+                                  className="text-base"
+                                />
+                              </div>
+                            );
+                          })()}
                           <Button
                             variant="outline"
                             size="sm"
@@ -2050,10 +2231,10 @@ export default function TransactionsPage() {
                           >
                             More
                           </Button>
-                          <span>{formatDate(txn.date)}</span>
+                          <span className="min-w-[7rem]">{formatDate(txn.date)}</span>
                         </div>
                       </td>
-                      <td className="p-3 align-top">
+                      <td className="py-3 pr-3 pl-6 align-top">
                         <div className="truncate" title={txn.raw_description}>
                           {txn.description}
                         </div>
@@ -2061,19 +2242,28 @@ export default function TransactionsPage() {
                           <span className="text-muted-foreground truncate max-w-56" title={txn.merchant}>
                             {txn.merchant || "Unknown merchant"}
                           </span>
-                          <Badge
-                            variant={
-                              txn.transaction_kind === "transfer"
-                                ? "secondary"
-                                : txn.transaction_kind === "income"
-                                  ? "success"
-                                  : txn.transaction_kind === "adjustment"
-                                    ? "warning"
-                                    : "default"
-                            }
-                          >
-                            {txn.transaction_kind}
-                          </Badge>
+                          {txn.has_external_funding_links ? (
+                            <Badge
+                              variant="secondary"
+                              className="badge-external-transfer bg-amber-500/20 dark:bg-amber-500/30"
+                            >
+                              external_transfer
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant={
+                                txn.transaction_kind === "transfer"
+                                  ? "secondary"
+                                  : txn.transaction_kind === "income"
+                                    ? "success"
+                                    : txn.transaction_kind === "adjustment"
+                                      ? "warning"
+                                      : "default"
+                              }
+                            >
+                              {txn.transaction_kind}
+                            </Badge>
+                          )}
                         </div>
                       </td>
                       <td
@@ -2097,7 +2287,7 @@ export default function TransactionsPage() {
                     </tr>
                     {expandedTxnId === txn.id && (
                       <tr className="border-b bg-muted/20">
-                        <td colSpan={4} className="p-3">
+                        <td colSpan={5} className="p-3">
                           {expandedLoading ? (
                             <div className="text-sm text-muted-foreground">
                               Loading raw import data...
@@ -2664,6 +2854,132 @@ export default function TransactionsPage() {
                   }}
                 >
                   Apply to selected
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkEditOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-2xl mx-4">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold">Bulk edit</div>
+                <div className="text-sm text-muted-foreground">
+                  Edit category, merchant, or description for {selectedTxnIds.size} selected transaction(s). Leave fields empty to keep current values.
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => setBulkEditOpen(false)}
+              >
+                Close
+              </Button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="text-sm text-muted-foreground">Category</label>
+                <CategorySelect
+                  className="mt-1"
+                  categories={categories}
+                  value={bulkEditCategoryId}
+                  placeholder="(keep current)"
+                  mode="path"
+                  onChange={(value) =>
+                    setBulkEditCategoryId(typeof value === "number" ? value : "")
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground">Merchant</label>
+                <input
+                  className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                  value={bulkEditMerchant}
+                  onChange={(e) => setBulkEditMerchant(e.target.value)}
+                  placeholder="(keep current)"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground">Description</label>
+                <input
+                  className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                  value={bulkEditDescription}
+                  onChange={(e) => setBulkEditDescription(e.target.value)}
+                  placeholder="(keep current)"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground">Raw description</label>
+                <input
+                  className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                  value={bulkEditRawDescription}
+                  onChange={(e) => setBulkEditRawDescription(e.target.value)}
+                  placeholder="(keep current)"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={bulkEditAllowClassified}
+                  onChange={(e) => setBulkEditAllowClassified(e.target.checked)}
+                />
+                Apply to already-classified transactions
+              </label>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setBulkEditOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={
+                    bulkEditSaving ||
+                    (!bulkEditCategoryId &&
+                      !bulkEditMerchant.trim() &&
+                      !bulkEditDescription.trim() &&
+                      !bulkEditRawDescription.trim())
+                  }
+                  onClick={async () => {
+                    setBulkEditSaving(true);
+                    try {
+                      setError("");
+                      const ids = Array.from(selectedTxnIds);
+                      if (bulkEditCategoryId) {
+                        await api.bulkClassify({
+                          transaction_ids: ids,
+                          category_id: bulkEditCategoryId,
+                          merchant: bulkEditMerchant.trim() || undefined,
+                          allow_classified: bulkEditAllowClassified,
+                        });
+                      }
+                      if (
+                        bulkEditMerchant.trim() ||
+                        bulkEditDescription.trim() ||
+                        bulkEditRawDescription.trim()
+                      ) {
+                        await api.bulkUpdateFields({
+                          transaction_ids: ids,
+                          merchant: bulkEditMerchant.trim() || undefined,
+                          description: bulkEditDescription.trim() || undefined,
+                          raw_description: bulkEditRawDescription.trim() || undefined,
+                          allow_classified: bulkEditAllowClassified,
+                          re_predict: false,
+                        });
+                      }
+                      setBulkEditOpen(false);
+                      setSelectedTxnIds(new Set());
+                      load();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Bulk edit failed");
+                    } finally {
+                      setBulkEditSaving(false);
+                    }
+                  }}
+                >
+                  {bulkEditSaving ? "Applying…" : "Apply"}
                 </Button>
               </div>
             </div>
