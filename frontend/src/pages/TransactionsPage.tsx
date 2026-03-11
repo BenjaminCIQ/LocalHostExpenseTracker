@@ -35,6 +35,10 @@ import { getCategoryIcon } from "@/lib/categoryIcons";
 import PersonIcon from "@/components/icons/PersonIcon";
 import AccountIcon from "@/components/icons/AccountIcon";
 import { useSelectedPersonId } from "@/lib/personFilter";
+import {
+  getTransferReviewDefaults,
+  TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT,
+} from "@/lib/transferReviewDefaults";
 import { useAuth } from "@/lib/auth";
 import TransferReviewPage from "@/pages/TransferReviewPage";
 import TransactionComparisonPane from "@/components/transactions/TransactionComparisonPane";
@@ -662,13 +666,24 @@ export default function TransactionsPage() {
     setDuplicateTxnById(Object.fromEntries(details));
   }, [selectedPersonId]);
 
+  const [transferDefaultsVersion, setTransferDefaultsVersion] = useState(0);
+  useEffect(() => {
+    const handler = () => setTransferDefaultsVersion((v) => v + 1);
+    window.addEventListener(TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT, handler);
+    return () => window.removeEventListener(TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT, handler);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
+    const defaults = getTransferReviewDefaults();
     Promise.all([
       api.getTransferCandidates({
-        limit: 25,
-        seed_limit: 400,
-        max_results: 25,
+        limit: defaults.maxResults,
+        seed_limit: defaults.seedLimit,
+        max_results: defaults.maxResults,
+        min_confidence: defaults.minConfidence,
+        amount_tolerance: defaults.amountTolerance,
+        date_window_days: defaults.dateWindowDays,
         person_id: selectedPersonId ?? undefined,
       }),
       api.getPotentialDuplicates({
@@ -689,7 +704,7 @@ export default function TransactionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPersonId]);
+  }, [selectedPersonId, transferDefaultsVersion]);
 
   useEffect(() => {
     if (activeTab !== "duplicates") return;

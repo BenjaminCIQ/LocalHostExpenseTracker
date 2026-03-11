@@ -6,39 +6,17 @@ import { Badge } from "@/components/ui/badge";
 import { api, type TransferCandidate, type TransferLinkingRule } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useSelectedPersonId } from "@/lib/personFilter";
+import {
+  getTransferReviewDefaults,
+  SYSTEM_DEFAULTS,
+  TRANSFER_REVIEW_DEFAULTS_KEY,
+  TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT,
+} from "@/lib/transferReviewDefaults";
 import TransactionComparisonPane from "@/components/transactions/TransactionComparisonPane";
-
-const TRANSFER_REVIEW_DEFAULTS_KEY = "transfer_review_candidate_defaults_v1";
-const SYSTEM_DEFAULTS = {
-  minConfidence: 0.55,
-  seedLimit: 1200,
-  maxResults: 400,
-  amountTolerance: 5,
-  dateWindowDays: 5,
-  autoConfidence: 0.9,
-};
-
-function getInitialDefaults() {
-  try {
-    const raw = localStorage.getItem(TRANSFER_REVIEW_DEFAULTS_KEY);
-    if (!raw) return SYSTEM_DEFAULTS;
-    const parsed = JSON.parse(raw) as Partial<typeof SYSTEM_DEFAULTS>;
-    return {
-      minConfidence: Number(parsed.minConfidence ?? SYSTEM_DEFAULTS.minConfidence),
-      seedLimit: Number(parsed.seedLimit ?? SYSTEM_DEFAULTS.seedLimit),
-      maxResults: Number(parsed.maxResults ?? SYSTEM_DEFAULTS.maxResults),
-      amountTolerance: Number(parsed.amountTolerance ?? SYSTEM_DEFAULTS.amountTolerance),
-      dateWindowDays: Number(parsed.dateWindowDays ?? SYSTEM_DEFAULTS.dateWindowDays),
-      autoConfidence: Number(parsed.autoConfidence ?? SYSTEM_DEFAULTS.autoConfidence),
-    };
-  } catch {
-    return SYSTEM_DEFAULTS;
-  }
-}
 
 export default function TransferReviewPage({ embedded = false }: { embedded?: boolean }) {
   const selectedPersonId = useSelectedPersonId();
-  const initialDefaults = getInitialDefaults();
+  const initialDefaults = getTransferReviewDefaults();
   const [rows, setRows] = useState<TransferCandidate[]>([]);
   const [rules, setRules] = useState<TransferLinkingRule[]>([]);
   const [activeBySourceId, setActiveBySourceId] = useState<Record<number, number>>({});
@@ -248,6 +226,7 @@ export default function TransferReviewPage({ embedded = false }: { embedded?: bo
                     autoConfidence,
                   })
                 );
+                window.dispatchEvent(new Event(TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT));
                 setMessage("Saved current detection controls as defaults.");
               }}
             >
