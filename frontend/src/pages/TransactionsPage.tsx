@@ -1945,16 +1945,19 @@ export default function TransactionsPage() {
                     {(() => {
                       const acc = accountById.get(txn.account_id);
                       const person = acc?.person_id ? personById.get(acc.person_id) : null;
+                      const personLabel = person?.name ?? "Unassigned";
+                      const accountLabel = acc?.name ?? "Unknown account";
                       return (
-                        <div className="flex items-center gap-1 shrink-0 text-base">
+                        <div
+                          className="flex items-center gap-1 shrink-0 text-base"
+                          title={`${personLabel} – ${accountLabel}`}
+                        >
                           <PersonIcon
                             iconId={person?.icon_id}
-                            title={person?.name ?? "Unassigned"}
                             className="text-base"
                           />
                           <AccountIcon
                             iconId={acc?.icon_id}
-                            title={acc?.name ?? "Unknown account"}
                             className="text-base"
                           />
                         </div>
@@ -2193,16 +2196,19 @@ export default function TransactionsPage() {
                           {(() => {
                             const acc = accountById.get(txn.account_id);
                             const person = acc?.person_id ? personById.get(acc.person_id) : null;
+                            const personLabel = person?.name ?? "Unassigned";
+                            const accountLabel = acc?.name ?? "Unknown account";
                             return (
-                              <div className="flex items-center gap-1 shrink-0 text-base">
+                              <div
+                                className="flex items-center gap-1 shrink-0 text-base"
+                                title={`${personLabel} – ${accountLabel}`}
+                              >
                                 <PersonIcon
                                   iconId={person?.icon_id}
-                                  title={person?.name ?? "Unassigned"}
                                   className="text-base"
                                 />
                                 <AccountIcon
                                   iconId={acc?.icon_id}
-                                  title={acc?.name ?? "Unknown account"}
                                   className="text-base"
                                 />
                               </div>
