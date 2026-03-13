@@ -9,6 +9,7 @@ import { useSelectedPersonId } from "@/lib/personFilter";
 import {
   getTransferReviewDefaults,
   SYSTEM_DEFAULTS,
+  TRANSFER_LINKED_EVENT,
   TRANSFER_REVIEW_DEFAULTS_KEY,
   TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT,
 } from "@/lib/transferReviewDefaults";
@@ -76,6 +77,7 @@ export default function TransferReviewPage({ embedded = false }: { embedded?: bo
     try {
       const res = await api.autoLinkTransfers(maxResults, autoConfidence);
       setMessage(`Auto-linked ${res.linked}, reviewed ${res.reviewed}, skipped ${res.skipped}`);
+      if (res.linked > 0) window.dispatchEvent(new Event(TRANSFER_LINKED_EVENT));
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Auto-link failed.");
@@ -90,6 +92,7 @@ export default function TransferReviewPage({ embedded = false }: { embedded?: bo
     try {
       await api.linkTransferPair(row.transaction_id, row.candidate_id, row.score);
       setMessage(`Linked #${row.transaction_id} and #${row.candidate_id}.`);
+      window.dispatchEvent(new Event(TRANSFER_LINKED_EVENT));
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Approve link failed.");

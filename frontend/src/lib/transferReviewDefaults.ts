@@ -5,6 +5,9 @@ export const TRANSFER_REVIEW_DEFAULTS_KEY = "transfer_review_candidate_defaults_
 /** Dispatched when user saves new defaults so badge count can refetch. */
 export const TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT = "transfer-review-defaults-saved";
 
+/** Dispatched when a transfer pair is linked (from Transfer Review or Transactions) so badge count can refetch. */
+export const TRANSFER_LINKED_EVENT = "transfer-linked";
+
 export const SYSTEM_DEFAULTS = {
   minConfidence: 0.55,
   seedLimit: 1200,

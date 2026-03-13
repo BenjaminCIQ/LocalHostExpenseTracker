@@ -37,6 +37,7 @@ import AccountIcon from "@/components/icons/AccountIcon";
 import { useSelectedPersonId } from "@/lib/personFilter";
 import {
   getTransferReviewDefaults,
+  TRANSFER_LINKED_EVENT,
   TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT,
 } from "@/lib/transferReviewDefaults";
 import { useAuth } from "@/lib/auth";
@@ -559,6 +560,7 @@ export default function TransactionsPage() {
         await api.linkTransferPair(sourceTxn.id, targetTxn.id);
         setLinkSourceTxnId(null);
         setLinkDropTargetTxnId(null);
+        window.dispatchEvent(new Event(TRANSFER_LINKED_EVENT));
         await load();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to link transfer");
@@ -671,6 +673,11 @@ export default function TransactionsPage() {
     const handler = () => setTransferDefaultsVersion((v) => v + 1);
     window.addEventListener(TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT, handler);
     return () => window.removeEventListener(TRANSFER_REVIEW_DEFAULTS_SAVED_EVENT, handler);
+  }, []);
+  useEffect(() => {
+    const handler = () => setTransferDefaultsVersion((v) => v + 1);
+    window.addEventListener(TRANSFER_LINKED_EVENT, handler);
+    return () => window.removeEventListener(TRANSFER_LINKED_EVENT, handler);
   }, []);
 
   useEffect(() => {
@@ -2351,6 +2358,7 @@ export default function TransactionsPage() {
                                     onClick={async () => {
                                       try {
                                         await api.unlinkTransfer(txn.id);
+                                        window.dispatchEvent(new Event(TRANSFER_LINKED_EVENT));
                                         load();
                                       } catch (e) {
                                         setError(e instanceof Error ? e.message : "Failed to unlink transfer");

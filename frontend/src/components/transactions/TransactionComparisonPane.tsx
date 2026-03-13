@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
+import { TRANSFER_LINKED_EVENT } from "@/lib/transferReviewDefaults";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default function TransactionComparisonPane({
@@ -109,6 +110,7 @@ export default function TransactionComparisonPane({
             setSaving(true);
             try {
               await api.unlinkTransfer(transactionId);
+              window.dispatchEvent(new Event(TRANSFER_LINKED_EVENT));
               await onChanged();
             } finally {
               setSaving(false);
