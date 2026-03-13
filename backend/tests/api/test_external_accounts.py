@@ -1,3 +1,23 @@
+def test_delete_external_account(client):
+    create = client.post(
+        "/api/external-accounts/",
+        json={
+            "name": "To Delete",
+            "account_type": "investment",
+            "account_group": "asset",
+            "currency": "EUR",
+        },
+    )
+    assert create.status_code == 201
+    external_id = create.json()["id"]
+
+    del_res = client.delete(f"/api/external-accounts/{external_id}")
+    assert del_res.status_code == 204
+
+    get_res = client.get(f"/api/external-accounts/{external_id}/snapshots")
+    assert get_res.status_code == 404
+
+
 def test_external_account_snapshot_and_reconciliation(client):
     create = client.post(
         "/api/external-accounts/",

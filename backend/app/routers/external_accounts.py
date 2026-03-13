@@ -82,6 +82,18 @@ def update_external_account(
     return item
 
 
+@router.delete("/{external_account_id}", status_code=204)
+def delete_external_account(
+    external_account_id: int,
+    db: Session = Depends(get_db),
+):
+    item = db.get(ExternalAccount, external_account_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="External account not found")
+    db.delete(item)
+    db.commit()
+
+
 @router.get("/{external_account_id}/snapshots", response_model=list[ExternalValuationSnapshotRead])
 def list_snapshots(
     external_account_id: int,

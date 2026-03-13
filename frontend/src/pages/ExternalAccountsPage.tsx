@@ -267,6 +267,19 @@ export default function ExternalAccountsPage() {
     await loadSelectedDetails(selectedId);
   }
 
+  async function removeExternalAccount() {
+    if (!selected) return;
+    if (!confirm(`Delete external account "${selected.name}"? Snapshots and funding links will be removed.`)) return;
+    try {
+      await api.deleteExternalAccount(selected.id);
+      setError("");
+      setSelectedId(null);
+      await loadAccounts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete account");
+    }
+  }
+
   async function saveExternalAccountEdits() {
     if (!selectedId) return;
     try {
@@ -434,12 +447,18 @@ export default function ExternalAccountsPage() {
                       ))}
                     </Select>
                   </div>
-                  <div className="flex justify-end">
+                  <div className="flex justify-end gap-2">
                     <Button
                       onClick={() => void saveExternalAccountEdits()}
                       disabled={!editName.trim() || savingEdit}
                     >
                       {savingEdit ? "Saving..." : "Save account changes"}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => void removeExternalAccount()}
+                    >
+                      Delete account
                     </Button>
                   </div>
                 </div>

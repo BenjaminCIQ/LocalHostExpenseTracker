@@ -1212,6 +1212,8 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
+  deleteExternalAccount: (id: number) =>
+    request<void>(`/external-accounts/${id}`, { method: "DELETE" }),
   getExternalSnapshots: (externalAccountId: number) =>
     request<ExternalValuationSnapshot[]>(`/external-accounts/${externalAccountId}/snapshots`),
   createExternalSnapshot: (
