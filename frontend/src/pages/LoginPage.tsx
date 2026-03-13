@@ -63,10 +63,14 @@ export default function LoginPage() {
       <CreateAccountForm
         showBackToLogin={onlyDefaultMe}
         onSuccess={() => {
-          refreshAuth().then(() => {
-            const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-            navigate(from || "/", { replace: true });
-          });
+          refreshAuth()
+            .then(() => {
+              const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+              navigate(from || "/", { replace: true });
+            })
+            .catch(() => {
+              navigate("/login", { replace: true, state: { from: (location.state as { from?: { pathname?: string } } | null)?.from } });
+            });
         }}
       />
     );
@@ -197,14 +201,20 @@ function CreateAccountForm({ onSuccess, showBackToLogin }: { onSuccess: () => vo
           <PasswordInput
             placeholder="At least 8 characters"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setError("");
+            }}
           />
         </div>
         <div>
           <div className="mb-1 text-xs text-muted-foreground">Confirm password</div>
           <PasswordInput
             value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
+            onChange={(e) => {
+              setConfirmPassword(e.target.value);
+              setError("");
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter") void submit();
             }}
