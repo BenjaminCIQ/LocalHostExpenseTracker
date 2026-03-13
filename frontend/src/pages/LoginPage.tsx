@@ -4,6 +4,11 @@ import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { api, type AuthPersonOption } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import {
+  getTourPromptDone,
+  setTourPromptDone,
+  setTourStartNextLoad,
+} from "@/lib/tour";
 
 export default function LoginPage() {
   const { authenticated, loading, refreshAuth } = useAuth();
@@ -14,6 +19,8 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [optionsLoaded, setOptionsLoaded] = useState(false);
+  const [showTourModal, setShowTourModal] = useState(false);
+  const [pendingFromPath, setPendingFromPath] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -42,8 +49,15 @@ export default function LoginPage() {
     try {
       await api.login({ person_id: Number(personId), password, remember_me: rememberMe });
       await refreshAuth();
-      const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-      navigate(from || "/", { replace: true });
+      const me = await api.getAuthMe();
+      const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
+      const pid = me.person?.id ?? null;
+      if (pid !== null && !getTourPromptDone(pid)) {
+        setPendingFromPath(from);
+        setShowTourModal(true);
+        return;
+      }
+      navigate(from, { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed");
     } finally {
@@ -51,17 +65,70 @@ export default function LoginPage() {
     }
   }
 
+  function handleTourChoice(takeTour: boolean) {
+    const me = api.getAuthMe();
+    me.then((auth) => {
+      const pid = auth.person?.id;
+      if (pid != null) setTourPromptDone(pid);
+      const from = pendingFromPath ?? "/";
+      setShowTourModal(false);
+      setPendingFromPath(null);
+      setBusy(false);
+      if (takeTour) {
+        setTourStartNextLoad();
+        navigate("/transactions", { replace: true });
+      } else {
+        navigate(from, { replace: true });
+      }
+    });
+  }
+
   if (loading) return <div className="p-6 text-sm text-muted-foreground">Checking session...</div>;
   if (authenticated) return <Navigate to="/" replace />;
+
+  if (showTourModal) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
+          <h2 className="text-lg font-semibold">Would you like to take a short tour?</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            We can walk you through adding an account, importing demo data, and exploring the app.
+          </p>
+          <div className="mt-6 flex gap-3">
+            <Button
+              onClick={() => handleTourChoice(true)}
+              className="flex-1"
+            >
+              Yes, take the tour
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleTourChoice(false)}
+              className="flex-1"
+            >
+              No, go to Dashboard
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (showCreateAccount) {
     return (
       <CreateAccountForm
         onSuccess={() => {
           refreshAuth()
-            .then(() => {
-              const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-              navigate(from || "/", { replace: true });
+            .then(() => api.getAuthMe())
+            .then((me) => {
+              const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
+              const pid = me.person?.id ?? null;
+              if (pid !== null && !getTourPromptDone(pid)) {
+                setPendingFromPath(from);
+                setShowTourModal(true);
+              } else {
+                navigate(from, { replace: true });
+              }
             })
             .catch(() => {
               navigate("/login", { replace: true, state: { from: (location.state as { from?: { pathname?: string } } | null)?.from } });

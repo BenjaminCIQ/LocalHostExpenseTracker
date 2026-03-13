@@ -1,14 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Menu } from "lucide-react";
+import { Menu, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, type Person } from "@/lib/api";
 import PersonIcon from "@/components/icons/PersonIcon";
 import { useAuth } from "@/lib/auth";
+import { useTourOptional } from "@/lib/tour";
 
 export default function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   const { person, logout } = useAuth();
   const navigate = useNavigate();
+  const tour = useTourOptional();
+  const [showEndTourModal, setShowEndTourModal] = useState(false);
+  const [endingTour, setEndingTour] = useState(false);
   const [people, setPeople] = useState<Person[]>([]);
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(() => {
     const raw = localStorage.getItem("selected_person_id");
@@ -36,10 +40,34 @@ export default function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => vo
     navigate("/login", { replace: true });
   }
 
+  async function handleEndTour(deleteDemoData: boolean) {
+    if (!tour) return;
+    setEndingTour(true);
+    try {
+      await tour.endTour(deleteDemoData);
+      setShowEndTourModal(false);
+      navigate("/", { replace: true });
+    } finally {
+      setEndingTour(false);
+    }
+  }
+
   return (
+    <>
     <header className="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
       <div className="min-h-14 px-3 py-2 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
+          {tour?.tourActive ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowEndTourModal(true)}
+              className="gap-1.5"
+            >
+              <XCircle className="h-4 w-4" />
+              End tour
+            </Button>
+          ) : null}
           <button
             type="button"
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background lg:hidden"
@@ -86,5 +114,34 @@ export default function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => vo
         </div>
       </div>
     </header>
+    {showEndTourModal && tour ? (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
+          <h2 className="text-lg font-semibold">End tour</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Would you like to remove all demo data (accounts and transactions created during the tour) and start with a fresh slate? Your login account will not be affected.
+          </p>
+          <div className="mt-6 flex gap-3">
+            <Button
+              onClick={() => handleEndTour(true)}
+              disabled={endingTour}
+              variant="default"
+              className="flex-1"
+            >
+              {endingTour ? "Removing…" : "Delete demo data and start fresh"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleEndTour(false)}
+              disabled={endingTour}
+              className="flex-1"
+            >
+              Keep data and exit
+            </Button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }

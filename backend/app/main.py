@@ -29,6 +29,7 @@ from app.routers import (
     budgets,
     categories,
     dashboard,
+    demo,
     external_accounts,
     import_profiles,
     ml,
@@ -326,6 +327,7 @@ app.include_router(rules.router, dependencies=[Depends(require_authenticated_use
 app.include_router(suggestions.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(transfer_linking_rules.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(trips.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(demo.router)
 
 
 class SPAStaticFiles(StarletteStaticFiles):

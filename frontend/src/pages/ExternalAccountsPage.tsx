@@ -15,8 +15,10 @@ import {
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useSelectedPersonId } from "@/lib/personFilter";
+import { TOUR_STEP_IDS, useTourOptional } from "@/lib/tour";
 
 export default function ExternalAccountsPage() {
+  const tour = useTourOptional();
   const linkTypeLabel = (value: string) =>
     value === "funding_in" ? "Into external account" : value === "funding_out" ? "Out of external account" : value;
   const transferLikelyDirectionLabel = (amount: number) =>
@@ -214,7 +216,16 @@ export default function ExternalAccountsPage() {
 
   async function createAccount() {
     if (!newName.trim()) return;
-    await api.createExternalAccount({
+    if (tour?.tourActive) {
+      const nextStep = TOUR_STEP_IDS.find((id) => !tour.isStepCompleted(id));
+      if (nextStep !== "external-accounts") {
+        const ok = window.confirm(
+          "You're in the demo. Anything you create during the demo can be removed when you end the tour. Continue?"
+        );
+        if (!ok) return;
+      }
+    }
+    const created = await api.createExternalAccount({
       name: newName.trim(),
       account_type: newType,
       account_group: newGroup,
@@ -222,6 +233,7 @@ export default function ExternalAccountsPage() {
       owner: personLabel(newPersonId) === "(unassigned)" ? "" : personLabel(newPersonId),
       person_id: newPersonId ?? null,
     });
+    if (tour?.tourActive) tour.addDemoExternalAccountId(created.id);
     setNewName("");
     setNewPersonId(null);
     await loadAccounts();

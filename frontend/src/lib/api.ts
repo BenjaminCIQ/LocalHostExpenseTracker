@@ -697,6 +697,15 @@ export const api = {
   deleteAccount: (id: number) =>
     request<void>(`/accounts/${id}`, { method: "DELETE" }),
 
+  demoCleanup: (payload: {
+    account_ids: number[];
+    external_account_ids?: number[];
+  }) =>
+    request<void>("/demo/cleanup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   getPersons: () => request<Person[]>("/persons/"),
   createPerson: (data: { name: string; icon_id?: string | null }) =>
     request<Person>("/persons/", { method: "POST", body: JSON.stringify(data) }),

@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Upload, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { api, type Account, type ImportProfile, type ImportResult, type PotentialDuplicate } from "@/lib/api";
 import AccountIcon from "@/components/icons/AccountIcon";
+import { useTourOptional } from "@/lib/tour";
 
 export default function UploadPage({ embedded = false }: { embedded?: boolean }) {
+  const navigate = useNavigate();
+  const tour = useTourOptional();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<number | null>(null);
   const [profiles, setProfiles] = useState<ImportProfile[]>([]);
@@ -45,13 +49,17 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
             ? `${res.transactions_imported} transactions imported from ${res.filename}${res.duplicates_skipped > 0 ? ` (${res.duplicates_skipped} duplicates skipped)` : ""}${res.duplicate_overrides_applied > 0 ? ` · ${res.duplicate_overrides_applied} overrides applied` : ""}`
             : `${res.transactions_imported} transactions imported from ${res.filename}`;
         toast.success(msg, { duration: 5000 });
+        if (tour?.tourActive) {
+          tour.markStepCompleted("import");
+          navigate("/transactions", { replace: true });
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Upload failed");
       } finally {
         setUploading(false);
       }
     },
-    [selectedAccount, selectedProfile]
+    [selectedAccount, selectedProfile, tour, navigate]
   );
 
   const importSelectedDuplicates = useCallback(async () => {

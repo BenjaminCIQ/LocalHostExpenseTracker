@@ -5,6 +5,7 @@ import { Select } from "@/components/ui/select";
 import { api, type Account, type Person } from "@/lib/api";
 import AccountIcon from "@/components/icons/AccountIcon";
 import { ACCOUNT_ICONS } from "@/lib/accountIcons";
+import { TOUR_STEP_IDS, useTourOptional } from "@/lib/tour";
 
 function personLabel(people: Person[], id?: number | null) {
   if (!id) return "(unassigned)";
@@ -12,6 +13,7 @@ function personLabel(people: Person[], id?: number | null) {
 }
 
 export default function AccountsPage() {
+  const tour = useTourOptional();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [error, setError] = useState("");
@@ -50,11 +52,21 @@ export default function AccountsPage() {
 
   const create = async () => {
     if (!newAcc.name?.trim()) return;
+    if (tour?.tourActive) {
+      const nextStep = TOUR_STEP_IDS.find((id) => !tour.isStepCompleted(id));
+      if (nextStep !== "accounts") {
+        const ok = window.confirm(
+          "You're in the demo. Anything you create during the demo can be removed when you end the tour. Continue?"
+        );
+        if (!ok) return;
+      }
+    }
     try {
-      await api.createAccount({
+      const created = await api.createAccount({
         ...newAcc,
         name: newAcc.name.trim(),
       });
+      if (tour?.tourActive) tour.addDemoAccountId(created.id);
       setNewAcc({
         name: "",
         bank_name: "",
