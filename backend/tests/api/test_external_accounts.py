@@ -69,24 +69,43 @@ def test_external_funding_link_validation_and_override(client):
     assert txn.status_code == 201
     txn_id = txn.json()["id"]
 
-    # Non transfer-like by default -> reject
-    bad = client.post(
+    # funding_in = into external = outflow from bank (negative amount) -> allowed
+    ok_in = client.post(
         f"/api/external-accounts/{external_id}/funding-links",
         json={"transaction_id": txn_id, "linked_amount": 300.0, "link_type": "funding_in"},
     )
-    assert bad.status_code == 400
+    assert ok_in.status_code == 201
 
-    # Override allowed.
-    ok = client.post(
+    # funding_out with negative-amount txn rejected (expects inflow to bank = positive)
+    bad_out = client.post(
+        f"/api/external-accounts/{external_id}/funding-links",
+        json={"transaction_id": txn_id, "linked_amount": 300.0, "link_type": "funding_out"},
+    )
+    assert bad_out.status_code == 400
+
+    # Override allows wrong direction if needed.
+    txn2 = client.post(
+        "/api/transactions/manual",
+        json={
+            "account_id": 1,
+            "date": "2026-01-13",
+            "amount": 100.0,
+            "description": "Wire in",
+            "merchant": "Bank",
+            "currency": "EUR",
+        },
+    )
+    assert txn2.status_code == 201
+    ok_override = client.post(
         f"/api/external-accounts/{external_id}/funding-links",
         json={
-            "transaction_id": txn_id,
-            "linked_amount": 300.0,
+            "transaction_id": txn2.json()["id"],
+            "linked_amount": 100.0,
             "link_type": "funding_in",
             "override_validation": True,
         },
     )
-    assert ok.status_code == 201
+    assert ok_override.status_code == 201
 
 
 def test_net_worth_includes_external_items(client):

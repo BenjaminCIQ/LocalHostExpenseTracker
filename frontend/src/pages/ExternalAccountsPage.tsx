@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -250,15 +251,21 @@ export default function ExternalAccountsPage() {
       setError("Please enter a valid linked amount greater than zero.");
       return;
     }
-    await api.createExternalFundingLink(selectedId, {
-      transaction_id: Number(linkTxnId),
-      linked_amount: parsedLinkAmount,
-      link_type: linkType,
-    });
-    setLinkTxnId("");
-    setLinkAmountInput("");
-    setError("");
-    await loadSelectedDetails(selectedId);
+    try {
+      await api.createExternalFundingLink(selectedId, {
+        transaction_id: Number(linkTxnId),
+        linked_amount: parsedLinkAmount,
+        link_type: linkType,
+      });
+      setLinkTxnId("");
+      setLinkAmountInput("");
+      setError("");
+      await loadSelectedDetails(selectedId);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to create funding link.";
+      setError(msg);
+      toast.error(msg, { duration: 5000 });
+    }
   }
 
   async function removeFundingLink(linkId: number) {

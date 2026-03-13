@@ -161,15 +161,17 @@ def create_funding_link(
         )
 
     if not payload.override_validation:
-        if payload.link_type == "funding_in" and txn.amount <= 0:
+        # funding_in = money into external account = outflow from bank (negative amount)
+        if payload.link_type == "funding_in" and txn.amount >= 0:
             raise HTTPException(
                 status_code=400,
-                detail="funding_in expects an inflow (positive amount). Use override_validation to force link.",
+                detail="funding_in expects an outflow from bank (negative amount). Use override_validation to force link.",
             )
-        if payload.link_type == "funding_out" and txn.amount >= 0:
+        # funding_out = money out of external account = inflow to bank (positive amount)
+        if payload.link_type == "funding_out" and txn.amount <= 0:
             raise HTTPException(
                 status_code=400,
-                detail="funding_out expects an outflow (negative amount). Use override_validation to force link.",
+                detail="funding_out expects an inflow to bank (positive amount). Use override_validation to force link.",
             )
 
     existing_total = (
