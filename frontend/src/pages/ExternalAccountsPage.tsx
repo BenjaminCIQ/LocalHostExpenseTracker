@@ -9,6 +9,7 @@ import {
   type ExternalFundingLink,
   type ExternalReconciliation,
   type ExternalValuationSnapshot,
+  type Person,
   type Transaction,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -27,8 +28,14 @@ export default function ExternalAccountsPage() {
         : "text-muted-foreground";
 
   const selectedPersonId = useSelectedPersonId();
+  const [people, setPeople] = useState<Person[]>([]);
   const [accounts, setAccounts] = useState<ExternalAccount[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  function personLabel(id?: number | null) {
+    if (!id) return "(unassigned)";
+    return people.find((p) => p.id === id)?.name ?? `#${id}`;
+  }
   const [snapshots, setSnapshots] = useState<ExternalValuationSnapshot[]>([]);
   const [fundingLinks, setFundingLinks] = useState<ExternalFundingLink[]>([]);
   const [reconciliation, setReconciliation] = useState<ExternalReconciliation | null>(null);
@@ -39,12 +46,12 @@ export default function ExternalAccountsPage() {
   const [newType, setNewType] = useState("investment");
   const [newGroup, setNewGroup] = useState<"asset" | "liability">("asset");
   const [newCurrency, setNewCurrency] = useState("EUR");
-  const [newOwner, setNewOwner] = useState("");
+  const [newPersonId, setNewPersonId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [editType, setEditType] = useState("investment");
   const [editGroup, setEditGroup] = useState<"asset" | "liability">("asset");
   const [editCurrency, setEditCurrency] = useState("EUR");
-  const [editOwner, setEditOwner] = useState("");
+  const [editPersonId, setEditPersonId] = useState<number | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [snapshotDate, setSnapshotDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -73,8 +80,12 @@ export default function ExternalAccountsPage() {
 
   async function loadAccounts() {
     try {
-      const rows = await api.getExternalAccounts(selectedPersonId ?? undefined);
+      const [rows, ps] = await Promise.all([
+        api.getExternalAccounts(selectedPersonId ?? undefined),
+        api.getPersons(),
+      ]);
       setAccounts(rows);
+      setPeople(ps);
       if (!selectedId && rows.length) setSelectedId(rows[0].id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load external accounts");
@@ -197,7 +208,7 @@ export default function ExternalAccountsPage() {
     setEditType(selected.account_type);
     setEditGroup((selected.account_group as "asset" | "liability") ?? "asset");
     setEditCurrency(selected.currency);
-    setEditOwner(selected.owner ?? "");
+    setEditPersonId(selected.person_id ?? null);
   }, [selected]);
 
   async function createAccount() {
@@ -207,11 +218,11 @@ export default function ExternalAccountsPage() {
       account_type: newType,
       account_group: newGroup,
       currency: newCurrency,
-      owner: newOwner.trim(),
-      person_id: selectedPersonId ?? null,
+      owner: personLabel(newPersonId) === "(unassigned)" ? "" : personLabel(newPersonId),
+      person_id: newPersonId ?? null,
     });
     setNewName("");
-    setNewOwner("");
+    setNewPersonId(null);
     await loadAccounts();
   }
 
@@ -265,7 +276,8 @@ export default function ExternalAccountsPage() {
         account_type: editType.trim(),
         account_group: editGroup,
         currency: editCurrency.trim().toUpperCase(),
-        owner: editOwner.trim(),
+        owner: personLabel(editPersonId) === "(unassigned)" ? "" : personLabel(editPersonId),
+        person_id: editPersonId ?? null,
       });
       await loadAccounts();
       await loadSelectedDetails(selectedId);
@@ -310,12 +322,17 @@ export default function ExternalAccountsPage() {
               value={newCurrency}
               onChange={(e) => setNewCurrency(e.target.value.toUpperCase())}
             />
-            <input
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-              placeholder="Owner (optional)"
-              value={newOwner}
-              onChange={(e) => setNewOwner(e.target.value)}
-            />
+            <Select
+              value={newPersonId ?? ""}
+              onChange={(e) => setNewPersonId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">(unassigned)</option>
+              {people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
             <Button onClick={() => void createAccount()} disabled={!newName.trim()}>
               Add
             </Button>
@@ -340,7 +357,7 @@ export default function ExternalAccountsPage() {
                 <div className="font-medium">{a.name}</div>
                 <div className="text-xs text-muted-foreground">
                   {a.account_group} · {a.currency}
-                  {a.owner ? ` · ${a.owner}` : ""}
+                  {personLabel(a.person_id) !== "(unassigned)" ? ` · ${personLabel(a.person_id)}` : ""}
                 </div>
               </button>
             ))}
@@ -353,7 +370,7 @@ export default function ExternalAccountsPage() {
             {selected ? (
               <div className="text-sm text-muted-foreground">
                 {selected.account_group} · {selected.currency}
-                {selected.owner ? ` · Owner: ${selected.owner}` : ""}
+                {personLabel(selected.person_id) !== "(unassigned)" ? ` · Owner: ${personLabel(selected.person_id)}` : ""}
               </div>
             ) : null}
           </CardHeader>
@@ -405,12 +422,17 @@ export default function ExternalAccountsPage() {
                       value={editCurrency}
                       onChange={(e) => setEditCurrency(e.target.value.toUpperCase())}
                     />
-                    <input
-                      className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-                      placeholder="Owner"
-                      value={editOwner}
-                      onChange={(e) => setEditOwner(e.target.value)}
-                    />
+                    <Select
+                      value={editPersonId ?? ""}
+                      onChange={(e) => setEditPersonId(e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">(unassigned)</option>
+                      {people.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </Select>
                   </div>
                   <div className="flex justify-end">
                     <Button
