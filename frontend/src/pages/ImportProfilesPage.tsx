@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { api, type ImportProfile } from "@/lib/api";
@@ -17,6 +18,7 @@ function joinCols(cols: string[]): string {
 export default function ImportProfilesPage({ embedded = false }: { embedded?: boolean }) {
   const [profiles, setProfiles] = useState<ImportProfile[]>([]);
   const [error, setError] = useState("");
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   const [name, setName] = useState("");
   const [delimiter, setDelimiter] = useState<string>("");
@@ -47,6 +49,16 @@ export default function ImportProfilesPage({ embedded = false }: { embedded?: bo
     load().catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, []);
 
+  const resetCreateForm = () => {
+    setName("");
+    setDelimiter("");
+    setDateColumn("Buchungstag");
+    setAmountColumn("Betrag");
+    setCurrencyColumn("Waehrung");
+    setMerchantColumns("Verwendungszweck, Beguenstigter/Zahlungspflichtiger");
+    setDescriptionColumns("Buchungstext, Verwendungszweck, Info");
+  };
+
   const create = async () => {
     if (!canCreate) return;
     try {
@@ -61,9 +73,11 @@ export default function ImportProfilesPage({ embedded = false }: { embedded?: bo
         description_columns: splitCols(descriptionColumns),
         enabled: true,
       });
-      setName("");
+      setCreateDialogOpen(false);
+      resetCreateForm();
       setError("");
       await load();
+      toast.success("Profile created!", { duration: 5000 });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Create failed");
     }
@@ -90,117 +104,130 @@ export default function ImportProfilesPage({ embedded = false }: { embedded?: bo
     }
   };
 
+  const createForm = (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="space-y-1">
+        <div className="text-sm text-muted-foreground">Name</div>
+        <input
+          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="My Bank CSV"
+        />
+      </div>
+      <div className="space-y-1">
+        <div className="text-sm text-muted-foreground">Delimiter (optional)</div>
+        <input
+          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          value={delimiter}
+          onChange={(e) => setDelimiter(e.target.value)}
+          placeholder="; , | or tab"
+        />
+      </div>
+      <div className="space-y-1">
+        <div className="text-sm text-muted-foreground">Date column</div>
+        <input
+          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          value={dateColumn}
+          onChange={(e) => setDateColumn(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1">
+        <div className="text-sm text-muted-foreground">Amount column</div>
+        <input
+          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          value={amountColumn}
+          onChange={(e) => setAmountColumn(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1">
+        <div className="text-sm text-muted-foreground">Currency column (optional)</div>
+        <input
+          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          value={currencyColumn}
+          onChange={(e) => setCurrencyColumn(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1">
+        <div className="text-sm text-muted-foreground">Merchant+Description columns (combined)</div>
+        <input
+          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          value={merchantColumns}
+          onChange={(e) => setMerchantColumns(e.target.value)}
+          placeholder="Comma-separated header names"
+        />
+        <div className="text-xs text-muted-foreground">This influences merchant extraction.</div>
+      </div>
+      <div className="space-y-1 md:col-span-2">
+        <div className="text-sm text-muted-foreground">Description columns (combined)</div>
+        <input
+          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          value={descriptionColumns}
+          onChange={(e) => setDescriptionColumns(e.target.value)}
+          placeholder="Comma-separated header names"
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         {!embedded && <h2 className="text-2xl font-bold">Import Profiles</h2>}
-        <Button variant="outline" onClick={() => load().catch(() => {})}>
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => load().catch(() => {})}>
+            Refresh
+          </Button>
+          <Button onClick={() => { setError(""); setCreateDialogOpen(true); }}>
+            Create profile
+          </Button>
+        </div>
       </div>
 
       {error && <p className="text-destructive">{error}</p>}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Create profile</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">Name</div>
-              <input
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="My Bank CSV"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">
-                Delimiter (optional)
+      {createDialogOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => {
+            setCreateDialogOpen(false);
+            resetCreateForm();
+          }}
+        >
+          <Card
+            className="w-full max-w-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardHeader>
+              <CardTitle>Create profile</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {createForm}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => { setCreateDialogOpen(false); resetCreateForm(); }}>
+                  Cancel
+                </Button>
+                <Button onClick={() => void create()} disabled={!canCreate}>
+                  Create
+                </Button>
               </div>
-              <input
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={delimiter}
-                onChange={(e) => setDelimiter(e.target.value)}
-                placeholder="; , | or tab"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">Date column</div>
-              <input
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={dateColumn}
-                onChange={(e) => setDateColumn(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">Amount column</div>
-              <input
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={amountColumn}
-                onChange={(e) => setAmountColumn(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">
-                Currency column (optional)
-              </div>
-              <input
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={currencyColumn}
-                onChange={(e) => setCurrencyColumn(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">
-                Merchant+Description columns (combined)
-              </div>
-              <input
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={merchantColumns}
-                onChange={(e) => setMerchantColumns(e.target.value)}
-                placeholder="Comma-separated header names"
-              />
-              <div className="text-xs text-muted-foreground">
-                This influences merchant extraction.
-              </div>
-            </div>
-
-            <div className="space-y-1 md:col-span-2">
-              <div className="text-sm text-muted-foreground">
-                Description columns (combined)
-              </div>
-              <input
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={descriptionColumns}
-                onChange={(e) => setDescriptionColumns(e.target.value)}
-                placeholder="Comma-separated header names"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end">
-            <Button onClick={create} disabled={!canCreate}>
-              Create
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Existing profiles</CardTitle>
+          <CardTitle>Profiles</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {profiles.length === 0 ? (
-            <p className="text-muted-foreground">No profiles yet.</p>
+            <div className="text-center py-6 space-y-3">
+              <p className="text-muted-foreground">No profiles yet.</p>
+              <Button onClick={() => { setError(""); setCreateDialogOpen(true); }}>
+                Create profile
+              </Button>
+            </div>
           ) : (
             <div className="space-y-3">
               {profiles.map((p) => (
