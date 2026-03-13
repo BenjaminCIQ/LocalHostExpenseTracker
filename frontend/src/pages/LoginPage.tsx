@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { api, type AuthPersonOption } from "@/lib/api";
@@ -16,8 +16,6 @@ export default function LoginPage() {
   const [optionsLoaded, setOptionsLoaded] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
-  const useMe = searchParams.get("use") === "me";
 
   useEffect(() => {
     api
@@ -35,9 +33,7 @@ export default function LoginPage() {
     [people, personId]
   );
 
-  const onlyDefaultMe = people.length === 1 && people[0]?.name === "Me" && people[0]?.requires_password_setup;
-  const showCreateAccount =
-    optionsLoaded && (people.length === 0 || (onlyDefaultMe && !useMe));
+  const showCreateAccount = optionsLoaded && people.length === 0;
 
   async function submit() {
     if (!personId || !password.trim()) return;
@@ -61,7 +57,6 @@ export default function LoginPage() {
   if (showCreateAccount) {
     return (
       <CreateAccountForm
-        showBackToLogin={onlyDefaultMe}
         onSuccess={() => {
           refreshAuth()
             .then(() => {
@@ -105,14 +100,6 @@ export default function LoginPage() {
               >
                 Set initial password
               </Link>
-              {onlyDefaultMe && (
-                <Link
-                  className="text-sm text-muted-foreground underline"
-                  to="/login"
-                >
-                  Create account with your name instead
-                </Link>
-              )}
             </div>
           </div>
         ) : (
@@ -145,7 +132,7 @@ export default function LoginPage() {
   );
 }
 
-function CreateAccountForm({ onSuccess, showBackToLogin }: { onSuccess: () => void; showBackToLogin?: boolean }) {
+function CreateAccountForm({ onSuccess }: { onSuccess: () => void }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -179,9 +166,7 @@ function CreateAccountForm({ onSuccess, showBackToLogin }: { onSuccess: () => vo
     <div className="mx-auto max-w-md space-y-4 py-12">
       <h1 className="text-2xl font-bold">Create your account</h1>
       <p className="text-sm text-muted-foreground">
-        {showBackToLogin
-          ? "Create an account with your name, or use the default 'Me' account."
-          : "No users yet. Enter your name and set a password to get started."}
+        No users yet. Enter your name and set a password to get started.
       </p>
       <div className="rounded-lg border border-border bg-card p-4 space-y-3">
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -235,11 +220,6 @@ function CreateAccountForm({ onSuccess, showBackToLogin }: { onSuccess: () => vo
           >
             {busy ? "Creating..." : "Create account"}
           </Button>
-          {showBackToLogin && (
-            <Link className="text-center text-sm text-muted-foreground underline" to="/login?use=me">
-              Use default account instead
-            </Link>
-          )}
         </div>
       </div>
     </div>

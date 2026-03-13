@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.deps import get_optional_authenticated_user
+from app.models.account import Account
 from app.models.auth import AuthSession, PersonCredential, SecurityEvent
 from app.models.person import Person
 from app.schemas.auth import (
@@ -140,6 +141,15 @@ def setup_first_user(
     person = Person(name=name)
     db.add(person)
     db.flush()
+    account = Account(
+        name="Main Account",
+        bank_name="",
+        account_type="checking",
+        currency="EUR",
+        owner="",
+        person_id=person.id,
+    )
+    db.add(account)
     pwd_hash, salt, iterations = hash_password(payload.password)
     cred = PersonCredential(
         person_id=person.id,

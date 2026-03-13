@@ -1,10 +1,8 @@
-"""Seed the database with default categories and a default account."""
+"""Seed the database with default categories. No default person or account; first user is created via signup."""
 
 from sqlalchemy.orm import Session
 
-from app.models.account import Account
 from app.models.category import Category
-from app.models.person import Person
 
 DEFAULT_CATEGORIES = [
     # (name, parent_name_or_None, is_income, sort_order)
@@ -75,15 +73,6 @@ DEFAULT_CATEGORIES = [
 ]
 
 
-def seed_default_person(db: Session) -> None:
-    """Ensure at least one person exists (repairs DB if persons were cleared)."""
-    if db.query(Person).count() > 0:
-        return
-    person = Person(name="Me")
-    db.add(person)
-    db.commit()
-
-
 def seed_categories(db: Session) -> None:
     if db.query(Category).count() > 0:
         return
@@ -102,27 +91,4 @@ def seed_categories(db: Session) -> None:
         db.flush()
         name_to_id[name] = cat.id
 
-    db.commit()
-
-
-def seed_default_account(db: Session) -> None:
-    if db.query(Account).count() > 0:
-        return
-
-    # Ensure at least one default person exists.
-    person = db.query(Person).order_by(Person.id.asc()).first()
-    if person is None:
-        person = Person(name="Me")
-        db.add(person)
-        db.flush()
-
-    account = Account(
-        name="Main Account",
-        bank_name="",
-        account_type="checking",
-        currency="EUR",
-        owner="",
-        person_id=person.id,
-    )
-    db.add(account)
     db.commit()

@@ -19,6 +19,8 @@ from app.pipeline.pipeline import ClassificationPipeline
 from app.models import rule as _rule_models  # noqa: F401
 from app.models import parsing_rule as _parsing_rule_models  # noqa: F401
 from app.models import person as _person_models  # noqa: F401
+from app.models.account import Account
+from app.models.person import Person
 from app.routers import (
     analytics,
     accounts,
@@ -34,7 +36,7 @@ from app.routers import (
     transactions,
     upload,
 )
-from app.seed import seed_categories, seed_default_account
+from app.seed import seed_categories
 
 
 @pytest.fixture()
@@ -64,7 +66,19 @@ def db_session(db_engine) -> Generator[Session, None, None]:
 @pytest.fixture()
 def seeded_db(db_session: Session) -> Session:
     seed_categories(db_session)
-    seed_default_account(db_session)
+    person = Person(name="Test User")
+    db_session.add(person)
+    db_session.flush()
+    account = Account(
+        name="Main Account",
+        bank_name="",
+        account_type="checking",
+        currency="EUR",
+        owner="",
+        person_id=person.id,
+    )
+    db_session.add(account)
+    db_session.commit()
     return db_session
 
 
