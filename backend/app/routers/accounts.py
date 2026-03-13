@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func, select
+
 from app.database import get_db
 from app.models.account import Account
 from app.models.person import Person
+from app.models.transaction import Transaction
 from app.schemas.account import AccountCreate, AccountRead, AccountUpdate
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
@@ -48,3 +51,18 @@ def update_account(account_id: int, payload: AccountUpdate, db: Session = Depend
     db.commit()
     db.refresh(account)
     return account
+
+
+@router.delete("/{account_id}", status_code=204)
+def delete_account(account_id: int, db: Session = Depends(get_db)):
+    account = db.get(Account, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    count = db.scalar(select(func.count()).select_from(Transaction).where(Transaction.account_id == account_id))
+    if (count or 0) > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete account that has transactions. Remove or reassign transactions first.",
+        )
+    db.delete(account)
+    db.commit()

@@ -686,6 +686,8 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
+  deleteAccount: (id: number) =>
+    request<void>(`/accounts/${id}`, { method: "DELETE" }),
 
   getPersons: () => request<Person[]>("/persons/"),
   createPerson: (data: { name: string; icon_id?: string | null }) =>

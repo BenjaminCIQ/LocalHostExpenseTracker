@@ -93,6 +93,18 @@ export default function AccountsPage() {
     }
   };
 
+  const removeAccount = async (a: Account) => {
+    if (!confirm(`Delete account "${a.name}"? This cannot be undone.`)) return;
+    try {
+      await api.deleteAccount(a.id);
+      setError("");
+      await load();
+      window.dispatchEvent(new Event("accounts-updated"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">Accounts</h2>
@@ -328,9 +340,14 @@ export default function AccountsPage() {
                           </div>
                         </div>
                       </div>
-                      <Button variant="outline" onClick={() => startEdit(a)}>
-                        Edit
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => startEdit(a)}>
+                          Edit
+                        </Button>
+                        <Button variant="destructive" onClick={() => void removeAccount(a)}>
+                          Delete
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
