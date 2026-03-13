@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { api, type AuthPersonOption } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -114,9 +115,7 @@ export default function LoginPage() {
           <>
             <div>
               <div className="mb-1 text-xs text-muted-foreground">Password</div>
-              <input
-                type="password"
-                className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+              <PasswordInput
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => {
@@ -195,9 +194,7 @@ function CreateAccountForm({ onSuccess, showBackToLogin }: { onSuccess: () => vo
         </div>
         <div>
           <div className="mb-1 text-xs text-muted-foreground">Password</div>
-          <input
-            type="password"
-            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+          <PasswordInput
             placeholder="At least 8 characters"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -205,9 +202,7 @@ function CreateAccountForm({ onSuccess, showBackToLogin }: { onSuccess: () => vo
         </div>
         <div>
           <div className="mb-1 text-xs text-muted-foreground">Confirm password</div>
-          <input
-            type="password"
-            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+          <PasswordInput
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             onKeyDown={(e) => {
