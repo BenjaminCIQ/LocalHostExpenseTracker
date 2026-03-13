@@ -52,30 +52,30 @@ def test_dashboard_after_upload_and_classification(client, sample_csv: str):
     assert data["classification_stats"]["classified"] == 1
     assert data["classification_stats"]["unclassified"] == 2
 
-    # Income/expense are category-based: only classified salary counts as income.
-    # With only one expense classified, total_income=0, total_expenses=that expense.
-    assert data["total_expenses"] > 0
+    # Income/expense are amount-based so data shows before classification.
+    # Sample CSV: +2500 (salary), -42.50, -9.99 -> income 2500, expenses 52.49
+    assert data["total_income"] == 2500.0
+    assert data["total_expenses"] == 42.5 + 9.99
 
     # Spending by category should include the classified expense.
     assert len(data["spending_by_category"]) >= 1
 
 
-def test_dashboard_category_based_income_and_expense(client, sample_csv: str):
-    """Income comes only from income categories; expense categories use net (refunds offset)."""
+def test_dashboard_amount_based_income_and_expense(client, sample_csv: str):
+    """Dashboard totals use amount sign (positive=income, negative=expense) so data shows before classification."""
     _upload_and_classify_expense_and_income(client, sample_csv)
     res = client.get("/api/dashboard/")
     assert res.status_code == 200
     data = res.json()
 
-    # Salary 2500 is classified to Salary (income category) -> total_income = 2500
+    # Amount-based: +2500 (salary), -42.50 (REWE), -9.99 (Spotify)
     assert data["total_income"] == 2500.0
-    # Only REWE expense (-42.50) classified to Groceries
-    assert data["total_expenses"] == 42.5
-    assert data["net"] == 2500.0 - 42.5
+    assert data["total_expenses"] == 42.5 + 9.99
+    assert data["net"] == 2500.0 - 42.5 - 9.99
 
 
-def test_dashboard_refund_offsets_expense_not_income(client):
-    """Grocery refund reduces expense for that category; does not count as income."""
+def test_dashboard_refund_as_positive_amount(client):
+    """Dashboard uses amount sign: refund (positive amount) counts as income in main totals."""
     cats = client.get("/api/categories/").json()
     salary_id = next(c["id"] for c in cats if c["name"] == "Salary")
     groceries_id = next(c["id"] for c in cats if c["name"] == "Groceries")
@@ -120,15 +120,14 @@ def test_dashboard_refund_offsets_expense_not_income(client):
             client.post(f"/api/transactions/{t['id']}/classify", json={"category_id": salary_id})
         else:
             client.post(f"/api/transactions/{t['id']}/classify", json={"category_id": groceries_id})
-    # Classify the refund (positive) to Groceries too
     refund_txn = next(t for t in txns if t["amount"] == 50.0)
     client.post(f"/api/transactions/{refund_txn['id']}/classify", json={"category_id": groceries_id})
 
     res = client.get("/api/dashboard/")
     assert res.status_code == 200
     data = res.json()
-    assert data["total_income"] == 5000.0
-    # Net groceries: -200 + 50 = -150 -> expense displayed as 150
-    assert data["total_expenses"] == 150.0
+    # Amount-based: income = 5000 + 50, expenses = 200, net = 4850
+    assert data["total_income"] == 5050.0
+    assert data["total_expenses"] == 200.0
     assert data["net"] == 4850.0
 

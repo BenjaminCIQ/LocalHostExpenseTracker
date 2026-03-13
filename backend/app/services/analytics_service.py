@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from statistics import median
 
-from sqlalchemy import Integer, and_, func, or_
+from sqlalchemy import Integer, and_, case, func, or_
 from sqlalchemy.orm import Query, Session
 
 from app.models.account import Account
@@ -199,6 +199,24 @@ def _income_expense_from_categories(q: Query) -> tuple[float, float]:
     expense_net = float(expense_val or 0.0)  # negative = spending
     expense_display = max(0.0, -expense_net)
     return income, expense_display
+
+
+def _income_expense_from_amounts(q: Query) -> tuple[float, float]:
+    """Returns (total_income, total_expense) from raw amounts: positive = income, negative = expense.
+    All transactions in the query count, so dashboard shows data before any classification."""
+    row = (
+        q.with_entities(
+            func.coalesce(
+                func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0)), 0.0
+            ).label("income"),
+            func.coalesce(
+                func.sum(case((Transaction.amount < 0, -Transaction.amount), else_=0)), 0.0
+            ).label("expense"),
+        )
+    ).first()
+    income = float(row[0] or 0.0)
+    expense = float(row[1] or 0.0)
+    return income, expense
 
 
 def get_timeseries(

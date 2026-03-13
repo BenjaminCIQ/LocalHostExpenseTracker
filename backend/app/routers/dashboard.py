@@ -10,7 +10,7 @@ from app.models.account import Account
 from app.models.category import Category
 from app.models.external_account import ExternalFundingLink
 from app.models.transaction import Transaction
-from app.services.analytics_service import _income_expense_from_categories
+from app.services.analytics_service import _income_expense_from_amounts, _income_expense_from_categories
 from app.schemas.dashboard import (
     CategorySpend,
     ClassificationStats,
@@ -55,7 +55,7 @@ def get_dashboard(
         end = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
         query = query.filter(Transaction.date >= start, Transaction.date < end)
 
-    total_income, total_expenses = _income_expense_from_categories(query)
+    total_income, total_expenses = _income_expense_from_amounts(query)
 
     category_rows = (
         query.filter(Transaction.final_category_id.isnot(None))
@@ -146,7 +146,7 @@ def get_monthly_breakdown(
     for i, start in enumerate(starts):
         end = starts[i + 1] if i + 1 < len(starts) else _add_month(date(today.year, today.month, 1))
         q = tx_query.filter(Transaction.date >= start, Transaction.date < end)
-        income, expenses = _income_expense_from_categories(q)
+        income, expenses = _income_expense_from_amounts(q)
         month_key = f"{start.year:04d}-{start.month:02d}"
         out.append(
             MonthlyTotals(
