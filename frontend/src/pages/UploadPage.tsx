@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Upload, CheckCircle, AlertCircle } from "lucide-react";
+import { toast } from "sonner";
+import { Upload, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { api, type Account, type ImportProfile, type ImportResult, type PotentialDuplicate } from "@/lib/api";
@@ -39,6 +40,11 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
         setLastFile(file);
         setResult(res);
         setSelectedDuplicateKeys(new Set(res.potential_duplicates.map((d) => d.duplicate_key)));
+        const msg =
+          res.duplicates_skipped > 0 || res.duplicate_overrides_applied > 0
+            ? `${res.transactions_imported} transactions imported from ${res.filename}${res.duplicates_skipped > 0 ? ` (${res.duplicates_skipped} duplicates skipped)` : ""}${res.duplicate_overrides_applied > 0 ? ` · ${res.duplicate_overrides_applied} overrides applied` : ""}`
+            : `${res.transactions_imported} transactions imported from ${res.filename}`;
+        toast.success(msg, { duration: 5000 });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Upload failed");
       } finally {
@@ -52,17 +58,21 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
     if (!selectedAccount || !lastFile || selectedDuplicateKeys.size === 0) return;
     setUploading(true);
     setError("");
-    try {
-      const res = await api.uploadFile(
-        lastFile,
-        selectedAccount,
-        selectedProfile,
-        Array.from(selectedDuplicateKeys)
-      );
-      setResult(res);
-      setSelectedDuplicateKeys(new Set(res.potential_duplicates.map((d) => d.duplicate_key)));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Duplicate override import failed");
+      try {
+        const res = await api.uploadFile(
+          lastFile,
+          selectedAccount,
+          selectedProfile,
+          Array.from(selectedDuplicateKeys)
+        );
+        setResult(res);
+        setSelectedDuplicateKeys(new Set(res.potential_duplicates.map((d) => d.duplicate_key)));
+        toast.success(
+          `${res.duplicate_overrides_applied} duplicate overrides imported from ${res.filename}`,
+          { duration: 5000 }
+        );
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Duplicate override import failed");
     } finally {
       setUploading(false);
     }
@@ -210,32 +220,6 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
           </div>
         </CardContent>
       </Card>
-
-      {result && (
-        <Card className="border-success/30 bg-success/5">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-3">
-              <CheckCircle className="h-5 w-5 text-success mt-0.5" />
-              <div>
-                <p className="font-medium">Import Successful</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  <strong>{result.transactions_imported}</strong> transactions
-                  imported from <strong>{result.filename}</strong>
-                  {result.duplicates_skipped > 0 && (
-                    <span>
-                      {" "}
-                      ({result.duplicates_skipped} duplicates skipped)
-                    </span>
-                  )}
-                  {result.duplicate_overrides_applied > 0 && (
-                    <span> · {result.duplicate_overrides_applied} duplicate overrides applied</span>
-                  )}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {result && result.potential_duplicates.length > 0 && (
         <Card>
