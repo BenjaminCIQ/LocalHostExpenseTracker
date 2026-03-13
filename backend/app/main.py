@@ -42,7 +42,7 @@ from app.routers import (
     transactions,
     upload,
 )
-from app.seed import seed_categories
+from app.seed import seed_categories, seed_default_import_profile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -258,6 +258,7 @@ async def lifespan(_app: FastAPI):
     db = SessionLocal()
     try:
         seed_categories(db)
+        seed_default_import_profile(db)
         ben = db.execute(text("SELECT id FROM persons WHERE lower(name)='ben' LIMIT 1")).fetchone()
         if ben:
             db.execute(text("UPDATE persons SET is_admin=1 WHERE id=:id"), {"id": ben[0]})

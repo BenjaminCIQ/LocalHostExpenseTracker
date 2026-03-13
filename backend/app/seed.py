@@ -1,8 +1,10 @@
-"""Seed the database with default categories. No default person or account; first user is created via signup."""
+"""Seed the database with default categories and a default import profile for docs demo CSVs. No default person or account; first user is created via signup."""
 
+import json
 from sqlalchemy.orm import Session
 
 from app.models.category import Category
+from app.models.import_profile import ImportProfile
 
 DEFAULT_CATEGORIES = [
     # (name, parent_name_or_None, is_income, sort_order)
@@ -91,4 +93,26 @@ def seed_categories(db: Session) -> None:
         db.flush()
         name_to_id[name] = cat.id
 
+    db.commit()
+
+
+# Matches docs/example_MainAcc_mt940.csv and docs/example_savings.csv (Datum;Betrag;Beschreibung;Auftraggeber/Empfänger)
+DEFAULT_IMPORT_PROFILE_NAME = "Docs demo (German CSV)"
+
+
+def seed_default_import_profile(db: Session) -> None:
+    if db.query(ImportProfile).filter(ImportProfile.name == DEFAULT_IMPORT_PROFILE_NAME).first():
+        return
+    profile = ImportProfile(
+        name=DEFAULT_IMPORT_PROFILE_NAME,
+        format="csv",
+        delimiter=";",
+        date_column="Datum",
+        amount_column="Betrag",
+        currency_column=None,
+        merchant_columns_json=json.dumps(["Auftraggeber/Empfänger"]),
+        description_columns_json=json.dumps(["Beschreibung", "Auftraggeber/Empfänger"]),
+        enabled=True,
+    )
+    db.add(profile)
     db.commit()

@@ -44,7 +44,7 @@ The frontend starts at http://localhost:5173 and proxies API requests to the bac
 
 ## Usage
 
-1. **Upload**: Go to the Upload page and drop a CSV bank statement
+1. **Upload**: Go to the Upload page and drop a CSV bank statement. The seeded import profile **"Docs demo (German CSV)"** matches the example files in `docs/` (`example_MainAcc_mt940.csv`, `example_savings.csv`) — select it when uploading those.
 2. **Classify**: Switch to Transactions, manually assign categories to each transaction
 3. **Learn**: After 30+ classifications, the ML model trains automatically and starts suggesting categories
 4. **Improve**: Corrections and new classifications continuously improve the model
