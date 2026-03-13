@@ -1,7 +1,7 @@
 import type { LayoutEntry, PageId } from "@/lib/widgets/types";
 
 const KEY_PREFIX = "widget-layout";
-const LAYOUT_VERSION = 4;
+export const LAYOUT_VERSION = 4;
 
 type LegacyLayoutEntry = Pick<LayoutEntry, "widgetId" | "size" | "order">;
 
@@ -43,8 +43,9 @@ const pageDefaults: Record<PageId, LegacyLayoutEntry[]> = {
   ],
 };
 
-function getKey(page: PageId) {
-  return `${KEY_PREFIX}-${page}`;
+function getKey(page: PageId, personId: number | null = null) {
+  const user = personId != null ? String(personId) : "anon";
+  return `${KEY_PREFIX}-${user}-${page}`;
 }
 
 function widthFromSize(size: LayoutEntry["size"]) {
@@ -60,6 +61,14 @@ function heightFromSize(size: LayoutEntry["size"]) {
   return 8;
 }
 
+/** KPI widget is compact; use fewer rows so vertical sizing isn't excessive. */
+const KPI_GRID_HEIGHT = 4;
+
+function gridHeightForEntry(entry: LegacyLayoutEntry): number {
+  if (entry.widgetId === "kpi-cards") return KPI_GRID_HEIGHT;
+  return heightFromSize(entry.size);
+}
+
 function toGridLayout(entries: LegacyLayoutEntry[]): LayoutEntry[] {
   const sorted = [...entries].sort((a, b) => a.order - b.order);
   let cursorX = 0;
@@ -69,7 +78,7 @@ function toGridLayout(entries: LegacyLayoutEntry[]): LayoutEntry[] {
 
   return sorted.map((entry, index) => {
     const w = widthFromSize(entry.size);
-    const h = heightFromSize(entry.size);
+    const h = gridHeightForEntry(entry);
     if (cursorX + w > totalCols) {
       cursorX = 0;
       cursorY += rowH;
@@ -94,7 +103,7 @@ function toGridLayout(entries: LegacyLayoutEntry[]): LayoutEntry[] {
   });
 }
 
-function hasGridFields(entry: unknown): entry is LayoutEntry {
+export function hasGridFields(entry: unknown): entry is LayoutEntry {
   if (!entry || typeof entry !== "object") return false;
   const e = entry as Partial<LayoutEntry>;
   return (
@@ -108,8 +117,8 @@ function hasGridFields(entry: unknown): entry is LayoutEntry {
   );
 }
 
-export function loadLayout(page: PageId): LayoutEntry[] {
-  const raw = localStorage.getItem(getKey(page));
+export function loadLayout(page: PageId, personId: number | null = null): LayoutEntry[] {
+  const raw = localStorage.getItem(getKey(page, personId));
   if (!raw) return toGridLayout(pageDefaults[page]);
   try {
     const parsed = JSON.parse(raw);
@@ -147,15 +156,15 @@ export function loadLayout(page: PageId): LayoutEntry[] {
   }
 }
 
-export function saveLayout(page: PageId, entries: LayoutEntry[]) {
+export function saveLayout(page: PageId, entries: LayoutEntry[], personId: number | null = null) {
   const stored: StoredLayout = { v: LAYOUT_VERSION, entries };
-  localStorage.setItem(getKey(page), JSON.stringify(stored));
+  localStorage.setItem(getKey(page, personId), JSON.stringify(stored));
 }
 
 export function getDefaultLayout(page: PageId): LayoutEntry[] {
   return toGridLayout(pageDefaults[page]);
 }
 
-export function resetLayout(page: PageId) {
-  localStorage.removeItem(getKey(page));
+export function resetLayout(page: PageId, personId: number | null = null) {
+  localStorage.removeItem(getKey(page, personId));
 }

@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactGridLayout from "react-grid-layout";
+import { Lock, LockOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { GlobalControlsBar } from "@/components/GlobalControlsBar";
 import { WidgetCatalog } from "@/components/WidgetCatalog";
 import { WidgetShell } from "@/components/WidgetShell";
+import { useAuth } from "@/lib/auth";
+import { api } from "@/lib/api";
 import { useDashboardFilters } from "@/lib/widgets/DashboardFiltersContext";
 import { loadWidgetControls, saveWidgetControls } from "@/lib/widgets/controlsStore";
 import { getWidget } from "@/lib/widgets/registry";
-import { getDefaultLayout, loadLayout, resetLayout, saveLayout } from "@/lib/widgets/layoutStore";
+import {
+  getDefaultLayout,
+  hasGridFields,
+  LAYOUT_VERSION,
+  loadLayout,
+  resetLayout,
+  saveLayout,
+} from "@/lib/widgets/layoutStore";
 import type {
   LayoutEntry,
   PageId,
@@ -29,14 +39,16 @@ function widthFromSize(size: WidgetSize) {
   return 3;
 }
 
-function defaultHeight(size: WidgetSize) {
+function defaultHeight(size: WidgetSize, widgetId?: string) {
+  if (widgetId === "kpi-cards") return 4;
   if (size === "md" || size === "sm") return 6;
   return 8;
 }
 
 export default function DashboardComposer({ page }: { page: PageId }) {
+  const { person } = useAuth();
   const { filters, globalControls } = useDashboardFilters();
-  const [layout, setLayout] = useState<LayoutEntry[]>(() => loadLayout(page));
+  const [layout, setLayout] = useState<LayoutEntry[]>(() => loadLayout(page, null));
   const [isEditMode, setIsEditMode] = useState<boolean>(
     () => localStorage.getItem(`${EDIT_MODE_KEY}-${page}`) === "1"
   );
@@ -71,26 +83,49 @@ export default function DashboardComposer({ page }: { page: PageId }) {
   }, []);
 
   useEffect(() => {
+    if (!person) return;
+    const personId = person.id;
+    setLayout(loadLayout(page, personId));
+    let cancelled = false;
+    api
+      .getWidgetLayout(page)
+      .then((res) => {
+        if (cancelled) return;
+        if (res && Array.isArray(res.entries) && res.entries.length > 0 && res.entries.every(hasGridFields)) {
+          setLayout(res.entries as LayoutEntry[]);
+          saveLayout(page, res.entries as LayoutEntry[], personId);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [page, person?.id]);
+
+  useEffect(() => {
     localStorage.setItem(`${EDIT_MODE_KEY}-${page}`, isEditMode ? "1" : "0");
   }, [isEditMode, page]);
 
   const rglLayout = useMemo(
     () =>
-      layout.map((entry) => ({
-        i: entry.widgetId,
-        x: entry.x,
-        y: entry.y,
-        w: entry.w,
-        h: entry.h,
-        static: !isEditMode,
-        isDraggable: isEditMode,
-        isResizable: isEditMode,
-        minW: 3,
-        maxW: 12,
-        minH: 3,
-        maxH: 20,
-        resizeHandles: ["w", "e", "s", "sw", "se"],
-      })),
+      layout.map((entry) => {
+        const isKpi = entry.widgetId === "kpi-cards";
+        return {
+          i: entry.widgetId,
+          x: entry.x,
+          y: entry.y,
+          w: entry.w,
+          h: entry.h,
+          static: !isEditMode,
+          isDraggable: isEditMode,
+          isResizable: isEditMode,
+          minW: isKpi ? 4 : 3,
+          maxW: 12,
+          minH: 1,
+          maxH: 20,
+          resizeHandles: ["w", "e", "s", "sw", "se"],
+        };
+      }),
     [isEditMode, layout]
   );
 
@@ -111,9 +146,13 @@ export default function DashboardComposer({ page }: { page: PageId }) {
   const persistLayout = useCallback(
     (entries: LayoutEntry[]) => {
       setLayout(entries);
-      saveLayout(page, entries);
+      const personId = person?.id ?? null;
+      saveLayout(page, entries, personId);
+      api
+        .saveWidgetLayout(page, { v: LAYOUT_VERSION, entries })
+        .catch(() => {});
     },
-    [page]
+    [page, person?.id]
   );
 
   const handleStop = useCallback(
@@ -161,7 +200,7 @@ export default function DashboardComposer({ page }: { page: PageId }) {
         x: 0,
         y: Infinity,
         w: widthFromSize(widget.defaultSize),
-        h: defaultHeight(widget.defaultSize),
+        h: defaultHeight(widget.defaultSize, widgetId),
       },
     ]);
   }
@@ -188,8 +227,10 @@ export default function DashboardComposer({ page }: { page: PageId }) {
   }
 
   function resetPageLayout() {
-    resetLayout(page);
-    setLayout(getDefaultLayout(page));
+    const defaultEntries = getDefaultLayout(page);
+    resetLayout(page, person?.id ?? null);
+    setLayout(defaultEntries);
+    api.saveWidgetLayout(page, { v: LAYOUT_VERSION, entries: defaultEntries }).catch(() => {});
   }
 
   return (
@@ -207,7 +248,17 @@ export default function DashboardComposer({ page }: { page: PageId }) {
           variant={isEditMode ? "default" : "outline"}
           onClick={() => setIsEditMode((prev) => !prev)}
         >
-          {isEditMode ? "Editing layout" : "Edit layout"}
+          {isEditMode ? (
+            <>
+              <LockOpen className="mr-1.5 h-4 w-4" />
+              Lock layout
+            </>
+          ) : (
+            <>
+              <Lock className="mr-1.5 h-4 w-4" />
+              Unlock layout
+            </>
+          )}
         </Button>
         {isEditMode && (
           <span className="text-xs text-muted-foreground">
@@ -221,7 +272,7 @@ export default function DashboardComposer({ page }: { page: PageId }) {
           className={isEditMode ? "layout layout-editing" : "layout"}
           cols={12}
           width={gridWidth}
-          rowHeight={28}
+          rowHeight={20}
           margin={[10, 10]}
           containerPadding={[0, 0]}
           compactType="vertical"

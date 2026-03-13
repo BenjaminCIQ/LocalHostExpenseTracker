@@ -36,6 +36,7 @@ from app.routers import (
     parsing_rules,
     persons,
     rules,
+    settings as settings_router,
     suggestions,
     transfer_linking_rules,
     trips,
@@ -236,6 +237,21 @@ def _ensure_auth_tables():
         )
 
 
+def _ensure_user_preferences_table():
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS user_preferences ("
+                "person_id INTEGER NOT NULL, "
+                "key VARCHAR(64) NOT NULL, "
+                "value TEXT NOT NULL, "
+                "updated_at DATETIME, "
+                "PRIMARY KEY (person_id, key)"
+                ")"
+            )
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     if settings.env == "production" and settings.auth_token_pepper == "change-me-in-production":
@@ -254,6 +270,7 @@ async def lifespan(_app: FastAPI):
     _ensure_account_icon_column()
     _ensure_external_tracking_tables()
     _ensure_auth_tables()
+    _ensure_user_preferences_table()
 
     db = SessionLocal()
     try:
@@ -300,6 +317,7 @@ app.include_router(upload.router, dependencies=[Depends(require_authenticated_us
 app.include_router(transactions.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(external_accounts.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(dashboard.router, dependencies=[Depends(require_authenticated_user)])
+app.include_router(settings_router.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(analytics.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(budgets.router, dependencies=[Depends(require_authenticated_user)])
 app.include_router(ml.router, dependencies=[Depends(require_authenticated_user)])

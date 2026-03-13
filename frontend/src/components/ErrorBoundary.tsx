@@ -30,7 +30,9 @@ export class ErrorBoundary extends Component<Props, State> {
   handleClearAndReload = () => {
     const { clearPageId } = this.props;
     if (clearPageId) {
-      localStorage.removeItem(`widget-layout-${clearPageId}`);
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith("widget-layout-") && k.endsWith(`-${clearPageId}`))
+        .forEach((k) => localStorage.removeItem(k));
       localStorage.removeItem(`widget-global-controls-${clearPageId}`);
       Object.keys(localStorage)
         .filter((k) => k.startsWith(`widget-controls-${clearPageId}-`))

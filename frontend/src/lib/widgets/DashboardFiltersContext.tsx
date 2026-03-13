@@ -13,6 +13,7 @@ import {
   resetGlobalControls,
   saveGlobalControls,
 } from "@/lib/widgets/controlsStore";
+import { useAuth } from "@/lib/auth";
 import { getSelectedPersonId } from "@/lib/personFilter";
 import type {
   DashboardFilters,
@@ -83,6 +84,7 @@ export function DashboardFiltersProvider({
   pageId: PageId;
   children: ReactNode;
 }) {
+  const { person } = useAuth();
   const [filters, setFilters] = useState<DashboardFilters>(() => getDefaultFilters());
   const [globalControls, setGlobalControls] = useState<GlobalControlState>(() =>
     loadGlobalControls(pageId)
@@ -94,6 +96,16 @@ export function DashboardFiltersProvider({
     }, 200);
     return () => window.clearTimeout(id);
   }, [globalControls, pageId]);
+
+  // Ensure filters have personId as soon as auth person is available (fixes empty first load)
+  useEffect(() => {
+    if (!person) return;
+    const selected = getSelectedPersonId();
+    if (selected !== null) return; // already have a selection (e.g. from localStorage)
+    localStorage.setItem("selected_person_id", String(person.id));
+    window.dispatchEvent(new Event("person-filter-changed"));
+    setFilters((prev) => ({ ...prev, personId: person.id, accountId: null }));
+  }, [person?.id]);
 
   useEffect(() => {
     const syncFromTopbar = () => {

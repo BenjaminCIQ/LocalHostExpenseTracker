@@ -675,6 +675,14 @@ export const api = {
   logout: () => request<AuthMe>("/auth/logout", { method: "POST" }),
   getAuthMe: () => request<AuthMe>("/auth/me"),
 
+  getWidgetLayout: (page: string) =>
+    request<{ v: number; entries: unknown[] } | null>(`/settings/widget-layout/${page}`),
+  saveWidgetLayout: (page: string, payload: { v: number; entries: unknown[] }) =>
+    request<{ ok: boolean }>(`/settings/widget-layout/${page}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
   getAccounts: () => request<Account[]>("/accounts/"),
   createAccount: (data: Partial<Account>) =>
     request<Account>("/accounts/", {
