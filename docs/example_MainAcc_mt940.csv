@@ -1,0 +1,54 @@
+Example Bank Statement Export (Demo Data)
+Generated for app showcase — 3 months, incl. transfers to savings and external
+Datum;Betrag;Beschreibung;Auftraggeber/Empfänger
+02.01.2026;2850,00;Gehalt Dezember;Employer GmbH
+05.01.2026;-62,34;POS 8821 REWE SAGT DANKE//KOELN/DE;REWE
+07.01.2026;-9,99;SEPA-LASTSCHRIFT Spotify AB 4829174;Spotify AB
+08.01.2026;-48,20;Tankstelle ARAL BERLIN MITTE;Aral
+10.01.2026;-34,15;LIDL DE 00001234 HAMBURG;Lidl
+11.01.2026;-500,00;Überweisung an Sparkonto;Eigene Konten
+12.01.2026;-15,99;NETFLIX.COM 88243653;Netflix
+14.01.2026;-89,90;AMAZON EU S.A R.L. NIEDERLASSUNG;Amazon
+15.01.2026;-1000,00;Funds for investment account;External Broker
+16.01.2026;-22,50;DB BAHN BERLIN HBF;Deutsche Bahn
+18.01.2026;-41,80;ALDI SUED 00003456 MUENCHEN;Aldi
+20.01.2026;-8,50;UBER TRIP BERLIN;Uber
+22.01.2026;-120,00;Stadtwerke Strom und Gas;Stadtwerke
+24.01.2026;-19,95;Zalando SE 004523 BERLIN;Zalando
+25.01.2026;200,00;Überweisung von Sparkonto;Eigene Konten
+26.01.2026;-55,00;Telekom Deutschland GmbH;Telekom
+28.01.2026;-12,30;Backwerk Filiale 112;Backwerk
+30.01.2026;-6,90;McDonald's 4421 Berlin;McDonald's
+01.02.2026;2850,00;Gehalt Januar;Employer GmbH
+03.02.2026;-71,20;POS 8821 REWE SAGT DANKE//KOELN/DE;REWE
+05.02.2026;-9,99;SEPA-LASTSCHRIFT Spotify AB 4829174;Spotify AB
+07.02.2026;-52,00;Tankstelle SHELL FRANKFURT;Shell
+09.02.2026;-38,90;LIDL DE 00001234 HAMBURG;Lidl
+11.02.2026;-15,99;NETFLIX.COM 88243653;Netflix
+13.02.2026;-124,50;AMAZON EU S.A R.L. NIEDERLASSUNG;Amazon
+14.02.2026;-300,00;Überweisung an Sparkonto;Eigene Konten
+15.02.2026;-31,20;DB BAHN MUENCHEN HBF;Deutsche Bahn
+17.02.2026;-45,60;ALDI SUED 00003456 MUENCHEN;Aldi
+19.02.2026;-11,20;UBER TRIP HAMBURG;Uber
+21.02.2026;-120,00;Stadtwerke Strom und Gas;Stadtwerke
+23.02.2026;-42,00;IKEA DE 0000789;IKEA
+25.02.2026;-55,00;Telekom Deutschland GmbH;Telekom
+27.02.2026;-18,40;Cafe Central Berlin;Cafe Central
+28.02.2026;-28,90;DM Drogerie 4456;DM
+02.03.2026;2850,00;Gehalt Februar;Employer GmbH
+04.03.2026;-58,90;POS 8821 REWE SAGT DANKE//KOELN/DE;REWE
+05.03.2026;150,00;Überweisung von Sparkonto;Eigene Konten
+06.03.2026;-9,99;SEPA-LASTSCHRIFT Spotify AB 4829174;Spotify AB
+08.03.2026;-44,80;Tankstelle TOTAL LEIPZIG;Total
+10.03.2026;-29,45;LIDL DE 00001234 HAMBURG;Lidl
+12.03.2026;-15,99;NETFLIX.COM 88243653;Netflix
+14.03.2026;-67,30;AMAZON EU S.A R.L. NIEDERLASSUNG;Amazon
+16.03.2026;-24,90;DB BAHN KOELN HBF;Deutsche Bahn
+18.03.2026;-39,20;ALDI SUED 00003456 MUENCHEN;Aldi
+20.03.2026;-14,50;UBER TRIP MUENCHEN;Uber
+21.03.2026;-400,00;Überweisung an Sparkonto;Eigene Konten
+22.03.2026;-120,00;Stadtwerke Strom und Gas;Stadtwerke
+24.03.2026;-36,00;H&M 00987 BERLIN;H&M
+26.03.2026;-55,00;Telekom Deutschland GmbH;Telekom
+28.03.2026;-22,60;Restaurant Pizzeria Roma;Pizzeria Roma
+30.03.2026;-9,20;Starbucks 3345 Berlin;Starbucks

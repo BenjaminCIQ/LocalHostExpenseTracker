@@ -1,0 +1,8 @@
+Example Savings Account Export (Demo Data)
+Transfers to/from main account — for transfer linking demo
+Datum;Betrag;Beschreibung;Auftraggeber/Empfänger
+11.01.2026;500,00;Überweisung von Girokonto;Eigene Konten
+25.01.2026;-200,00;Überweisung an Girokonto;Eigene Konten
+14.02.2026;300,00;Überweisung von Girokonto;Eigene Konten
+05.03.2026;-150,00;Überweisung an Girokonto;Eigene Konten
+21.03.2026;400,00;Überweisung von Girokonto;Eigene Konten
