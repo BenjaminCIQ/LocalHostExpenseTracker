@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   AlertCircle,
   Brain,
@@ -112,13 +112,16 @@ function SidebarLink({
   showHintsForNav: boolean;
   hintsOnly: boolean;
 }) {
+  const { pathname } = useLocation();
   const [infoHovered, setInfoHovered] = useState(false);
   const [currentTargetHovered, setCurrentTargetHovered] = useState(false);
+  const [currentPageTooltipDismissed, setCurrentPageTooltipDismissed] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const Icon = item.icon;
-  const isCurrentTarget = Boolean(tourTarget);
+  const isNextStep = Boolean(tourTarget);
+  const isCurrentPage = !hintsOnly && pathname === item.to;
   const showInfoIcon =
-    showHintsForNav && Boolean(pageHint) && !isCurrentTarget;
+    showHintsForNav && Boolean(pageHint) && !isNextStep && !isCurrentPage;
   const placement: HintTooltipPlacement =
     expanded ? "right-center" : "right-bottom";
 
@@ -126,7 +129,7 @@ function SidebarLink({
     <NavLink
       to={item.to}
       end={item.to === "/"}
-      title={!expanded && !tourTarget && !showInfoIcon ? item.label : undefined}
+      title={!expanded && !tourTarget && !showInfoIcon && !isCurrentPage ? item.label : undefined}
       aria-label={item.label}
       onClick={onNavigate}
       className={({ isActive }) =>
@@ -141,7 +144,7 @@ function SidebarLink({
     >
       <Icon className="h-4 w-4 shrink-0" />
       {expanded && <span className="truncate">{item.label}</span>}
-      {isCurrentTarget && (
+      {isNextStep && (
         <span className="ml-auto flex shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground" aria-label="Click this next">
           <AlertCircle className="h-3.5 w-3.5" aria-hidden />
         </span>
@@ -178,6 +181,31 @@ function SidebarLink({
   );
 
   const hintForCard = pageHint ?? tourTarget;
+
+  /* Current page in tour: tooltip open by default with X, then hover-only */
+  if (isCurrentPage && pageHint) {
+    const showTooltip = infoHovered || !currentPageTooltipDismissed;
+    return (
+      <div
+        ref={triggerRef}
+        className="relative"
+        onMouseEnter={() => setInfoHovered(true)}
+        onMouseLeave={() => setInfoHovered(false)}
+      >
+        {link}
+        <HintTooltipPortal show={showTooltip} triggerRef={triggerRef} placement={placement}>
+          <HintTooltipCard
+            hint={pageHint}
+            titleOverride={`You're here: ${item.label}`}
+            showCloseButton={!currentPageTooltipDismissed}
+            onClose={() => setCurrentPageTooltipDismissed(true)}
+          />
+        </HintTooltipPortal>
+      </div>
+    );
+  }
+
+  /* Next step in tour: pulse ring, tooltip on hover only */
   if (tourTarget && hintForCard) {
     return (
       <div
@@ -200,9 +228,6 @@ function SidebarLink({
             hint={hintForCard}
             titleOverride={`Go here next: ${tourTarget.label}`}
             isNextStep
-            actionLabelOverride={`Go to ${tourTarget.label}`}
-            actionToOverride={item.to}
-            onActionClick={onNavigate}
           />
         </HintTooltipPortal>
       </div>
@@ -219,7 +244,7 @@ function SidebarLink({
       >
         {link}
         <HintTooltipPortal show={infoHovered} triggerRef={triggerRef} placement={placement}>
-          <HintTooltipCard hint={pageHint} actionToOverride={item.to} onActionClick={onNavigate} />
+          <HintTooltipCard hint={pageHint} />
         </HintTooltipPortal>
       </div>
     );
@@ -454,11 +479,11 @@ export default function Sidebar({
                     triggerRef={themePanelRef}
                     placement="right-center"
                   >
-                    <HintTooltipCard hint={themeHint} onActionClick={() => setThemePanelOpen(true)} />
+                    <HintTooltipCard hint={themeHint} />
                   </HintTooltipPortal>
                   {tourActive && nextTourStep === "themes" && (
                     <HintTooltipPortal show={themeCurrentTargetHovered} triggerRef={themePanelRef} placement="right-center">
-                      <HintTooltipCard hint={themeHint} titleOverride="Go here next: Themes" isNextStep onActionClick={() => setThemePanelOpen(true)} />
+                      <HintTooltipCard hint={themeHint} titleOverride="Go here next: Themes" isNextStep />
                     </HintTooltipPortal>
                   )}
                 </>
@@ -557,11 +582,11 @@ export default function Sidebar({
                     triggerRef={themePanelCollapsedRef as RefObject<HTMLElement | null>}
                     placement="right-bottom"
                   >
-                    <HintTooltipCard hint={themeHint} onActionClick={() => setThemePanelOpen(true)} />
+                    <HintTooltipCard hint={themeHint} />
                   </HintTooltipPortal>
                   {tourActive && nextTourStep === "themes" && (
                     <HintTooltipPortal show={themeCurrentTargetHovered} triggerRef={themePanelCollapsedRef as RefObject<HTMLElement | null>} placement="right-bottom">
-                      <HintTooltipCard hint={themeHint} titleOverride="Go here next: Themes" isNextStep onActionClick={() => setThemePanelOpen(true)} />
+                      <HintTooltipCard hint={themeHint} titleOverride="Go here next: Themes" isNextStep />
                     </HintTooltipPortal>
                   )}
                 </>

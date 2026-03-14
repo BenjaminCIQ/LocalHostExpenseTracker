@@ -7,8 +7,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
-import { Info } from "lucide-react";
+import { Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getButtonHint,
@@ -25,40 +24,44 @@ const TOOLTIP_MAX_WIDTH = 320;
 
 export type HintTooltipPlacement = "right-center" | "right-bottom" | "left-center" | "left-bottom";
 
-/** Rich tooltip card: title, body copy, and text-style action. */
+/** Rich tooltip card: title, body copy. Optional close button for tour current-step. */
 export function HintTooltipCard({
   hint,
   titleOverride,
   isNextStep,
-  actionLabelOverride,
-  actionToOverride,
-  onActionClick,
+  showCloseButton,
+  onClose,
   className,
 }: {
   hint: HintContent;
   titleOverride?: string;
   isNextStep?: boolean;
-  actionLabelOverride?: string;
-  actionToOverride?: string;
-  onActionClick?: () => void;
+  showCloseButton?: boolean;
+  onClose?: () => void;
   className?: string;
 }) {
   const title = titleOverride ?? hint.label;
-  const actionLabel = actionLabelOverride ?? hint.actionLabel ?? hint.label;
-  const actionTo = actionToOverride ?? hint.actionTo;
-  const actionClass =
-    "mt-4 block font-bold text-xs uppercase tracking-wider text-primary hover:underline cursor-pointer";
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-white text-gray-900 shadow-xl p-4 text-left min-w-[260px] max-w-[320px] dark:bg-gray-100 dark:text-gray-900 dark:border-gray-300",
+        "rounded-xl border border-border bg-white text-gray-900 shadow-xl p-4 text-left min-w-[260px] max-w-[320px] dark:bg-gray-100 dark:text-gray-900 dark:border-gray-300 relative",
         className
       )}
       role="tooltip"
     >
+      {showCloseButton && onClose ? (
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-2 right-2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="Close tooltip"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      ) : null}
       <p
         className={cn(
-          "font-bold text-sm",
+          "font-bold text-sm pr-8",
           isNextStep ? "text-primary" : "text-gray-900 dark:text-gray-900"
         )}
       >
@@ -67,25 +70,6 @@ export function HintTooltipCard({
       <p className="mt-2 text-sm text-gray-600 dark:text-gray-700 leading-relaxed">
         {hint.description}
       </p>
-      {actionTo ? (
-        <Link
-          to={actionTo}
-          className={cn(actionClass, "text-primary")}
-          onClick={onActionClick}
-        >
-          {actionLabel}
-        </Link>
-      ) : onActionClick ? (
-        <button
-          type="button"
-          className={cn(actionClass, "border-0 bg-transparent p-0")}
-          onClick={onActionClick}
-        >
-          {actionLabel}
-        </button>
-      ) : (
-        <span className={actionClass}>{actionLabel}</span>
-      )}
     </div>
   );
 }

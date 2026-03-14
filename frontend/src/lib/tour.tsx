@@ -67,20 +67,6 @@ export const TOUR_STEP_LABELS: Record<TourStepId, string> = {
   themes: "Themes",
 };
 
-export const TOUR_STEP_PROMPTS: Record<TourStepId, { what: string; why: string }> = {
-  transactions: { what: "Your transactions appear here.", why: "We'll add an account and import demo data next." },
-  accounts: { what: "Add the bank accounts you import from.", why: "You need at least one account before importing." },
-  categories: { what: "Categories organize spending and income (e.g. Food, Transport).", why: "Transactions are assigned to categories for analytics and budgets." },
-  classification: { what: "Rules and overrides so transactions get the right category automatically.", why: "Saves time and keeps reports accurate." },
-  "transfer-linking": { what: "Rules to link transfers between accounts (e.g. checking → savings).", why: "Avoids double-counting in analytics." },
-  ml: { what: "The app can learn from your categorizations and suggest categories.", why: "Shows training status and when suggestions will start." },
-  import: { what: "Upload a CSV of transactions. Use the demo file for this tour.", why: "Importing data is the first step to see your finances." },
-  "transactions-after": { what: "Here are your imported transactions.", why: "You can categorize, filter, and search." },
-  "external-accounts": { what: "Track investments, savings, or other balances outside your main bank.", why: "Gives you net worth and funding flow insights." },
-  analytics: { what: "Spending trends, category breakdowns, and insights.", why: "Most useful after you have some categorized data." },
-  themes: { what: "Change the look of the app.", why: "Open the Theme panel in the sidebar (bottom) to pick a color theme." },
-};
-
 /** Rich tooltip/panel copy: a short explanation of each page for tour tooltips and the current-step popover. */
 export const TOUR_STEP_DESCRIPTIONS: Record<TourStepId, string> = {
   transactions:
