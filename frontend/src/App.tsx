@@ -19,6 +19,7 @@ import LoginPage from "@/pages/LoginPage";
 import SetPasswordPage from "@/pages/SetPasswordPage";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { HintsProvider } from "@/lib/hints";
 import { ThemeProvider } from "@/lib/theme";
 import { TourProvider } from "@/lib/tour";
 
@@ -30,7 +31,9 @@ function RequireAuthLayout() {
   if (!authenticated) return <Navigate to="/login" replace state={{ from: location }} />;
   return (
     <TourProvider personId={person?.id ?? null}>
-      <Layout />
+      <HintsProvider>
+        <Layout />
+      </HintsProvider>
     </TourProvider>
   );
 }

@@ -338,3 +338,29 @@ body {
   animation: tour-info-pulse 1.8s ease-in-out infinite;
   display: inline-flex;
 }
+
+/* Helpful hints only: subdued pulse (slower, gentler) */
+@keyframes hint-info-pulse-subdued {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.88;
+    transform: scale(1.06);
+  }
+}
+.hint-info-icon-subdued {
+  color: color-mix(in srgb, var(--color-primary) 65%, white);
+}
+
+/* Sidebar: hide scrollbars but keep scroll behavior */
+.sidebar-scroll-hide {
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sidebar-scroll-hide::-webkit-scrollbar {
+  display: none;
+}

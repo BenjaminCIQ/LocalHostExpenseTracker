@@ -43,6 +43,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import TransferReviewPage from "@/pages/TransferReviewPage";
 import TransactionComparisonPane from "@/components/transactions/TransactionComparisonPane";
+import { ButtonHint } from "@/components/HintTooltip";
 
 type FilterMode = "all" | "unclassified" | "classified";
 
@@ -1047,9 +1048,13 @@ export default function TransactionsPage() {
             onChange={handleTabChange}
             options={tabOptions}
           />
-          <Link to="/import">
-            <Button variant="outline">Import Data</Button>
-          </Link>
+          <div className="flex items-center gap-1">
+            <ButtonHint buttonId="transfer-review" />
+            <Link to="/import">
+              <Button variant="outline">Import Data</Button>
+            </Link>
+            <ButtonHint buttonId="import-data" />
+          </div>
         </div>
         <TransferReviewPage embedded />
       </div>
@@ -1065,7 +1070,8 @@ export default function TransactionsPage() {
             onChange={handleTabChange}
             options={tabOptions}
           />
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <ButtonHint buttonId="duplicates" />
             <Button
               variant="outline"
               onClick={() => {
@@ -1080,6 +1086,7 @@ export default function TransactionsPage() {
             <Link to="/import">
               <Button variant="outline">Import Data</Button>
             </Link>
+            <ButtonHint buttonId="import-data" />
           </div>
         </div>
         <Card>
@@ -1209,40 +1216,49 @@ export default function TransactionsPage() {
           onChange={handleTabChange}
           options={tabOptions}
         />
-        <Link to="/import">
-          <Button variant="outline">Import Data</Button>
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link to="/import">
+            <Button variant="outline">Import Data</Button>
+          </Link>
+          <ButtonHint buttonId="import-data" />
+        </div>
       </div>
 
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Transactions</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {Number.isFinite(focusTxnId) ? (
             <Button variant="outline" onClick={clearFocusedTransaction}>
               Clear focus
             </Button>
           ) : null}
-          <Button
-            variant="outline"
-            onClick={() => {
-              const today = new Date().toISOString().slice(0, 10);
-              if (manualAccountId === null && accounts.length > 0) {
-                setManualAccountId(accounts[0].id);
-              }
-              setManualDate(today);
-              setManualAmount(0);
-              setManualMerchant("");
-              setManualDescription("");
-              setManualCurrency("EUR");
-              setManualOpen(true);
-            }}
-          >
-            Add transaction
-          </Button>
-          <Button variant="outline" onClick={handleClassifyAll}>
-            <Sparkles className="h-4 w-4" />
-            Run ML on Unclassified
-          </Button>
+          <span className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              onClick={() => {
+                const today = new Date().toISOString().slice(0, 10);
+                if (manualAccountId === null && accounts.length > 0) {
+                  setManualAccountId(accounts[0].id);
+                }
+                setManualDate(today);
+                setManualAmount(0);
+                setManualMerchant("");
+                setManualDescription("");
+                setManualCurrency("EUR");
+                setManualOpen(true);
+              }}
+            >
+              Add transaction
+            </Button>
+            <ButtonHint buttonId="add-transaction" />
+          </span>
+          <span className="flex items-center gap-1">
+            <Button variant="outline" onClick={handleClassifyAll}>
+              <Sparkles className="h-4 w-4" />
+              Run ML on Unclassified
+            </Button>
+            <ButtonHint buttonId="run-ml-unclassified" />
+          </span>
         </div>
       </div>
       {Number.isFinite(focusTxnId) ? (

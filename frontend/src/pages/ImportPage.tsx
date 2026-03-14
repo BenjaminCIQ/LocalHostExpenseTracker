@@ -2,6 +2,7 @@ import { useState } from "react";
 import ImportProfilesPage from "@/pages/ImportProfilesPage";
 import UploadPage from "@/pages/UploadPage";
 import { Tabs, TabPanel } from "@/components/ui/tabs";
+import { ButtonHint } from "@/components/HintTooltip";
 
 type ImportTab = "upload" | "profiles";
 
@@ -15,9 +16,12 @@ export default function ImportPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h2 className="text-2xl font-bold">Import</h2>
-        <Tabs value={tab} onChange={setTab} options={IMPORT_TABS} />
+        <div className="flex items-center gap-1">
+          <Tabs value={tab} onChange={setTab} options={IMPORT_TABS} />
+          {tab === "upload" ? <ButtonHint buttonId="upload-csv" /> : <ButtonHint buttonId="import-profiles" />}
+        </div>
       </div>
 
       <TabPanel active={tab === "upload"}>

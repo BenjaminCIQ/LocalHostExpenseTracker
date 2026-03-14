@@ -6,6 +6,7 @@ import { api, type Account, type Person } from "@/lib/api";
 import AccountIcon from "@/components/icons/AccountIcon";
 import { ACCOUNT_ICONS } from "@/lib/accountIcons";
 import { TOUR_STEP_IDS, useTourOptional } from "@/lib/tour";
+import { ButtonHint } from "@/components/HintTooltip";
 
 function personLabel(people: Person[], id?: number | null) {
   if (!id) return "(unassigned)";
@@ -124,7 +125,10 @@ export default function AccountsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Add account</CardTitle>
+          <div className="flex items-center gap-1">
+            <CardTitle>Add account</CardTitle>
+            <ButtonHint buttonId="add-account" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 md:grid-cols-6 items-end">

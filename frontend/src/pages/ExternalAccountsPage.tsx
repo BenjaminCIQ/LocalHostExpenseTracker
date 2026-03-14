@@ -16,6 +16,7 @@ import {
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useSelectedPersonId } from "@/lib/personFilter";
 import { TOUR_STEP_IDS, useTourOptional } from "@/lib/tour";
+import { ButtonHint } from "@/components/HintTooltip";
 
 export default function ExternalAccountsPage() {
   const tour = useTourOptional();
@@ -496,9 +497,12 @@ export default function ExternalAccountsPage() {
                     onChange={(e) => setSnapshotValueInput(e.target.value)}
                     placeholder="Snapshot value"
                   />
-                  <Button onClick={() => void addSnapshot()} disabled={!snapshotValueInput.trim()}>
-                    Add valuation snapshot
-                  </Button>
+                  <span className="flex items-center gap-1">
+                    <Button onClick={() => void addSnapshot()} disabled={!snapshotValueInput.trim()}>
+                      Add valuation snapshot
+                    </Button>
+                    <ButtonHint buttonId="add-valuation-snapshot" />
+                  </span>
                 </div>
 
                 <div className="grid gap-2 md:grid-cols-5 items-end">
@@ -579,9 +583,12 @@ export default function ExternalAccountsPage() {
                     <option value="funding_in">Into external account</option>
                     <option value="funding_out">Out of external account</option>
                   </Select>
-                  <Button onClick={() => void addFundingLink()} disabled={!linkTxnId || !linkAmountInput.trim()}>
-                    Link transfer
-                  </Button>
+                  <span className="flex items-center gap-1">
+                    <Button onClick={() => void addFundingLink()} disabled={!linkTxnId || !linkAmountInput.trim()}>
+                      Link transfer
+                    </Button>
+                    <ButtonHint buttonId="link-transfer" />
+                  </span>
                 </div>
                 <p className={`text-xs font-medium ${directionToneClass(linkType)}`}>Selected direction: {linkTypeLabel(linkType)}</p>
                 {selectedTransfer ? (

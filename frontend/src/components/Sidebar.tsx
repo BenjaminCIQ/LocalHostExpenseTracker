@@ -1,6 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { createPortal } from "react-dom";
-import { Link, NavLink } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { NavLink } from "react-router-dom";
 import {
   AlertCircle,
   Brain,
@@ -8,6 +7,7 @@ import {
   ChevronDown,
   CreditCard,
   GitBranch,
+  HelpCircle,
   Info,
   Landmark,
   LayoutDashboard,
@@ -27,18 +27,22 @@ import {
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { getPageHint } from "@/lib/hints";
+import { useHintsContext } from "@/lib/hints";
 import { useTheme, type ThemeName } from "@/lib/theme";
 import { useTourOptional } from "@/lib/tour";
 import {
-  getStepIdForPath,
-  isTourNavPath,
   TOUR_STEP_IDS,
   TOUR_STEP_LABELS,
   TOUR_STEP_PATHS,
-  TOUR_STEP_PROMPTS,
   TOUR_STEP_DESCRIPTIONS,
 } from "@/lib/tour";
 import type { TourStepId } from "@/lib/tour";
+import {
+  HintTooltipCard,
+  HintTooltipPortal,
+  type HintTooltipPlacement,
+} from "@/components/HintTooltip";
 
 type NavItem = {
   to: string;
@@ -84,141 +88,39 @@ const THEME_SWATCHES: Record<ThemeName, string[]> = {
   ember: ["#f97316", "#f59e0b", "#fcd34d"],
 };
 
-/** Rich tooltip card: title, body copy, and text-style action (matches reference design). */
-function TourRichTooltipCard({
-  title,
-  description,
-  actionLabel,
-  actionTo,
-  isNextStep,
-  className,
-  onActionClick,
-}: {
-  title: string;
+type PageHintOrTour = {
+  label: string;
   description: string;
-  actionLabel: string;
+  actionLabel?: string;
   actionTo?: string;
-  isNextStep?: boolean;
-  className?: string;
-  onActionClick?: () => void;
-}) {
-  const actionClass =
-    "mt-4 block font-bold text-xs uppercase tracking-wider text-primary hover:underline cursor-pointer";
-  return (
-    <div
-      className={cn(
-        "rounded-xl border border-border bg-white text-gray-900 shadow-xl p-4 text-left min-w-[260px] max-w-[320px] dark:bg-gray-100 dark:text-gray-900 dark:border-gray-300",
-        className
-      )}
-      role="tooltip"
-    >
-      <p className={cn("font-bold text-sm", isNextStep ? "text-primary" : "text-gray-900 dark:text-gray-900")}>{title}</p>
-      <p className="mt-2 text-sm text-gray-600 dark:text-gray-700 leading-relaxed">{description}</p>
-      {actionTo ? (
-        <Link to={actionTo} className={cn(actionClass, "text-primary")} onClick={onActionClick}>
-          {actionLabel}
-        </Link>
-      ) : onActionClick ? (
-        <button type="button" className={cn(actionClass, "border-0 bg-transparent p-0")} onClick={onActionClick}>
-          {actionLabel}
-        </button>
-      ) : (
-        <span className={actionClass}>{actionLabel}</span>
-      )}
-    </div>
-  );
-}
-
-const GAP = 8;
-const PORTAL_Z = 9999;
-
-/** Renders children in a portal, positioned to the right of the trigger (so sidebar overflow doesn't clip). */
-function TourTooltipPortal({
-  show,
-  triggerRef,
-  placement,
-  children,
-}: {
-  show: boolean;
-  triggerRef: RefObject<HTMLElement | null>;
-  placement: "right-center" | "right-bottom";
-  children: ReactNode;
-}) {
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
-
-  const updatePosition = useMemo(
-    () => () => {
-      const el = triggerRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const left = rect.right + GAP;
-      const top =
-        placement === "right-center"
-          ? rect.top + rect.height / 2
-          : rect.bottom + GAP;
-      setPosition({ left, top });
-    },
-    [triggerRef, placement]
-  );
-
-  useLayoutEffect(() => {
-    if (!show) {
-      setPosition(null);
-      return;
-    }
-    const measure = () => {
-      updatePosition();
-    };
-    measure();
-    const rafId = requestAnimationFrame(measure);
-    const timeoutId = window.setTimeout(measure, 50);
-    window.addEventListener("scroll", updatePosition, true);
-    window.addEventListener("resize", updatePosition);
-    return () => {
-      cancelAnimationFrame(rafId);
-      window.clearTimeout(timeoutId);
-      window.removeEventListener("scroll", updatePosition, true);
-      window.removeEventListener("resize", updatePosition);
-    };
-  }, [show, updatePosition]);
-
-  if (!show || !position) return null;
-
-  const style: React.CSSProperties = {
-    position: "fixed",
-    left: position.left,
-    top: position.top,
-    zIndex: PORTAL_Z,
-    transform: placement === "right-center" ? "translateY(-50%)" : undefined,
-  };
-
-  return createPortal(
-    <div style={style} className="tour-tooltip-portal">
-      {children}
-    </div>,
-    document.body
-  );
-}
+};
 
 function SidebarLink({
   item,
   expanded,
   onNavigate,
   tourTarget,
-  tourInfo,
+  pageHint,
+  showHintsForNav,
+  hintsOnly,
 }: {
   item: NavItem;
   expanded: boolean;
   onNavigate?: () => void;
-  tourTarget?: TourStepCopy;
-  tourInfo?: TourStepCopy;
+  tourTarget?: PageHintOrTour;
+  pageHint?: PageHintOrTour | null;
+  showHintsForNav: boolean;
+  hintsOnly: boolean;
 }) {
   const [infoHovered, setInfoHovered] = useState(false);
   const [currentTargetHovered, setCurrentTargetHovered] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const Icon = item.icon;
   const isCurrentTarget = Boolean(tourTarget);
-  const showInfoIcon = Boolean(tourInfo) && !isCurrentTarget;
+  const showInfoIcon =
+    showHintsForNav && Boolean(pageHint) && !isCurrentTarget;
+  const placement: HintTooltipPlacement =
+    expanded ? "right-center" : "right-bottom";
 
   const link = (
     <NavLink
@@ -244,11 +146,19 @@ function SidebarLink({
           <AlertCircle className="h-3.5 w-3.5" aria-hidden />
         </span>
       )}
-      {showInfoIcon && (
+      {showInfoIcon && pageHint && (
         <span
-          className="tour-info-icon ml-auto flex shrink-0 inline-flex"
-          style={{ animation: "tour-info-pulse 1.8s ease-in-out infinite", willChange: "transform" }}
-          aria-label={`Info: ${tourInfo?.label}`}
+          className={cn(
+            "ml-auto flex shrink-0 inline-flex",
+            hintsOnly ? "hint-info-icon-subdued" : "tour-info-icon"
+          )}
+          style={{
+            animation: hintsOnly
+              ? "hint-info-pulse-subdued 2.5s ease-in-out infinite"
+              : "tour-info-pulse 1.8s ease-in-out infinite",
+            willChange: "transform",
+          }}
+          aria-label={`Info: ${pageHint.label}`}
         >
           <Info className="h-3.5 w-3.5" aria-hidden />
         </span>
@@ -267,7 +177,8 @@ function SidebarLink({
     </NavLink>
   );
 
-  if (tourTarget) {
+  const hintForCard = pageHint ?? tourTarget;
+  if (tourTarget && hintForCard) {
     return (
       <div
         className="relative"
@@ -284,21 +195,21 @@ function SidebarLink({
           </span>
           {link}
         </div>
-        <TourTooltipPortal show={currentTargetHovered} triggerRef={triggerRef} placement={expanded ? "right-center" : "right-bottom"}>
-          <TourRichTooltipCard
-            title={`Go here next: ${tourTarget.label}`}
-            description={tourTarget.description}
-            actionLabel={`Go to ${tourTarget.label}`}
-            actionTo={item.to}
+        <HintTooltipPortal show={currentTargetHovered} triggerRef={triggerRef} placement={placement}>
+          <HintTooltipCard
+            hint={hintForCard}
+            titleOverride={`Go here next: ${tourTarget.label}`}
             isNextStep
+            actionLabelOverride={`Go to ${tourTarget.label}`}
+            actionToOverride={item.to}
             onActionClick={onNavigate}
           />
-        </TourTooltipPortal>
+        </HintTooltipPortal>
       </div>
     );
   }
 
-  if (showInfoIcon && tourInfo) {
+  if (showInfoIcon && pageHint) {
     return (
       <div
         ref={triggerRef}
@@ -307,15 +218,9 @@ function SidebarLink({
         onMouseLeave={() => setInfoHovered(false)}
       >
         {link}
-        <TourTooltipPortal show={infoHovered} triggerRef={triggerRef} placement={expanded ? "right-center" : "right-bottom"}>
-          <TourRichTooltipCard
-            title={tourInfo.label}
-            description={tourInfo.description}
-            actionLabel={`Go to ${tourInfo.label}`}
-            actionTo={item.to}
-            onActionClick={onNavigate}
-          />
-        </TourTooltipPortal>
+        <HintTooltipPortal show={infoHovered} triggerRef={triggerRef} placement={placement}>
+          <HintTooltipCard hint={pageHint} actionToOverride={item.to} onActionClick={onNavigate} />
+        </HintTooltipPortal>
       </div>
     );
   }
@@ -323,35 +228,18 @@ function SidebarLink({
   return link;
 }
 
-type TourStepCopy = { label: string; what: string; why: string; description: string };
-
 function getTourTargetForPath(
   path: string,
   tourActive: boolean,
   nextStep: TourStepId | undefined
-): TourStepCopy | undefined {
+): PageHintOrTour | undefined {
   if (!tourActive || !nextStep || nextStep === "themes") return undefined;
   if (TOUR_STEP_PATHS[nextStep] !== path) return undefined;
   return {
     label: TOUR_STEP_LABELS[nextStep],
-    ...TOUR_STEP_PROMPTS[nextStep],
     description: TOUR_STEP_DESCRIPTIONS[nextStep],
-  };
-}
-
-function getTourInfoForPath(
-  path: string,
-  tourActive: boolean,
-  nextStep: TourStepId | undefined
-): TourStepCopy | undefined {
-  if (!tourActive || !isTourNavPath(path)) return undefined;
-  if (getTourTargetForPath(path, tourActive, nextStep)) return undefined;
-  const stepId = getStepIdForPath(path);
-  if (!stepId) return undefined;
-  return {
-    label: TOUR_STEP_LABELS[stepId],
-    ...TOUR_STEP_PROMPTS[stepId],
-    description: TOUR_STEP_DESCRIPTIONS[stepId],
+    actionLabel: `Go to ${TOUR_STEP_LABELS[nextStep]}`,
+    actionTo: path,
   };
 }
 
@@ -363,6 +251,8 @@ function NavGroup({
   onNavigate,
   nextTourStep,
   tourActive,
+  showHintsForNav,
+  hintsOnly,
 }: {
   title: string;
   items: NavItem[];
@@ -371,6 +261,8 @@ function NavGroup({
   onNavigate?: () => void;
   nextTourStep?: TourStepId;
   tourActive?: boolean;
+  showHintsForNav: boolean;
+  hintsOnly: boolean;
 }) {
   return (
     <div className={cn("space-y-1", showDivider && "pt-3")}>
@@ -393,7 +285,9 @@ function NavGroup({
           expanded={expanded}
           onNavigate={onNavigate}
           tourTarget={tourActive && nextTourStep ? getTourTargetForPath(item.to, tourActive, nextTourStep) : undefined}
-          tourInfo={tourActive && nextTourStep ? getTourInfoForPath(item.to, tourActive, nextTourStep) : undefined}
+          pageHint={showHintsForNav ? getPageHint(item.to) : null}
+          showHintsForNav={showHintsForNav}
+          hintsOnly={hintsOnly}
         />
       ))}
     </div>
@@ -467,11 +361,17 @@ export default function Sidebar({
   }, [isAdmin]);
 
   const tourActive = Boolean(tour?.tourActive);
+  const hintsContext = useHintsContext();
+  const hintsEnabled = hintsContext?.hintsEnabled ?? false;
+  const showHintsForNav = hintsEnabled || tourActive;
+  const hintsOnly = hintsEnabled && !tourActive;
+  const themeHint = getPageHint("theme");
+
   const navContent = (expanded: boolean, onNavigate?: () => void) => (
     <>
-      <NavGroup title="Main" items={MAIN_ITEMS} expanded={expanded} onNavigate={onNavigate} nextTourStep={nextTourStep} tourActive={tourActive} />
-      <NavGroup title="Accounts" items={ACCOUNT_ITEMS} expanded={expanded} showDivider onNavigate={onNavigate} nextTourStep={nextTourStep} tourActive={tourActive} />
-      <NavGroup title="Configuration" items={CONFIG_ITEMS} expanded={expanded} showDivider onNavigate={onNavigate} nextTourStep={nextTourStep} tourActive={tourActive} />
+      <NavGroup title="Main" items={MAIN_ITEMS} expanded={expanded} onNavigate={onNavigate} nextTourStep={nextTourStep} tourActive={tourActive} showHintsForNav={showHintsForNav} hintsOnly={hintsOnly} />
+      <NavGroup title="Accounts" items={ACCOUNT_ITEMS} expanded={expanded} showDivider onNavigate={onNavigate} nextTourStep={nextTourStep} tourActive={tourActive} showHintsForNav={showHintsForNav} hintsOnly={hintsOnly} />
+      <NavGroup title="Configuration" items={CONFIG_ITEMS} expanded={expanded} showDivider onNavigate={onNavigate} nextTourStep={nextTourStep} tourActive={tourActive} showHintsForNav={showHintsForNav} hintsOnly={hintsOnly} />
       {isAdmin ? (
         <NavGroup
           title="Admin"
@@ -481,6 +381,8 @@ export default function Sidebar({
           onNavigate={onNavigate}
           nextTourStep={nextTourStep}
           tourActive={tourActive}
+          showHintsForNav={showHintsForNav}
+          hintsOnly={hintsOnly}
         />
       ) : null}
     </>
@@ -490,7 +392,7 @@ export default function Sidebar({
     <>
     <aside
       className={cn(
-        "hidden lg:block h-screen sticky top-0 z-30 shrink-0 overflow-y-auto border-r border-border bg-card/90 backdrop-blur transition-all duration-200",
+        "hidden lg:block h-screen sticky top-0 z-30 shrink-0 overflow-y-auto border-r border-border bg-card/90 backdrop-blur transition-all duration-200 sidebar-scroll-hide",
         expanded ? "w-56" : "w-14"
       )}
       onMouseEnter={() => {
@@ -532,7 +434,7 @@ export default function Sidebar({
               )}
               onMouseEnter={() => {
                 if (tourActive && nextTourStep === "themes") setThemeCurrentTargetHovered(true);
-                else if (tourActive && nextTourStep !== "themes") setThemeInfoHovered(true);
+                else if (showHintsForNav) setThemeInfoHovered(true);
               }}
               onMouseLeave={() => {
                 setThemeInfoHovered(false);
@@ -545,28 +447,21 @@ export default function Sidebar({
                   <span className="tour-pulse-ring tour-pulse-ring-delay" />
                 </span>
               )}
-              <TourTooltipPortal
-                show={tourActive && nextTourStep !== "themes" && themeInfoHovered}
-                triggerRef={themePanelRef}
-                placement="right-center"
-              >
-                <TourRichTooltipCard
-                  title="Themes"
-                  description={TOUR_STEP_DESCRIPTIONS.themes}
-                  actionLabel="Open theme panel below"
-                  onActionClick={() => setThemePanelOpen(true)}
-                />
-              </TourTooltipPortal>
-              {tourActive && nextTourStep === "themes" && (
-                <TourTooltipPortal show={themeCurrentTargetHovered} triggerRef={themePanelRef} placement="right-center">
-                  <TourRichTooltipCard
-                    title="Go here next: Themes"
-                    description={TOUR_STEP_DESCRIPTIONS.themes}
-                    actionLabel="Open theme panel below"
-                    isNextStep
-                    onActionClick={() => setThemePanelOpen(true)}
-                  />
-                </TourTooltipPortal>
+              {themeHint && (
+                <>
+                  <HintTooltipPortal
+                    show={showHintsForNav && !(tourActive && nextTourStep === "themes") && themeInfoHovered}
+                    triggerRef={themePanelRef}
+                    placement="right-center"
+                  >
+                    <HintTooltipCard hint={themeHint} onActionClick={() => setThemePanelOpen(true)} />
+                  </HintTooltipPortal>
+                  {tourActive && nextTourStep === "themes" && (
+                    <HintTooltipPortal show={themeCurrentTargetHovered} triggerRef={themePanelRef} placement="right-center">
+                      <HintTooltipCard hint={themeHint} titleOverride="Go here next: Themes" isNextStep onActionClick={() => setThemePanelOpen(true)} />
+                    </HintTooltipPortal>
+                  )}
+                </>
               )}
               <button
                 type="button"
@@ -581,10 +476,13 @@ export default function Sidebar({
                       <AlertCircle className="h-3.5 w-3.5" aria-hidden />
                     </span>
                   )}
-                  {tourActive && nextTourStep !== "themes" && (
+                  {showHintsForNav && !(tourActive && nextTourStep === "themes") && themeHint && (
                     <span
-                      className="tour-info-icon flex shrink-0 inline-flex"
-                      style={{ animation: "tour-info-pulse 1.8s ease-in-out infinite", willChange: "transform" }}
+                      className={cn("flex shrink-0 inline-flex", hintsOnly ? "hint-info-icon-subdued" : "tour-info-icon")}
+                      style={{
+                        animation: hintsOnly ? "hint-info-pulse-subdued 2.5s ease-in-out infinite" : "tour-info-pulse 1.8s ease-in-out infinite",
+                        willChange: "transform",
+                      }}
                       aria-label="Info: Themes"
                     >
                       <Info className="h-3.5 w-3.5" aria-hidden />
@@ -639,7 +537,7 @@ export default function Sidebar({
               )}
               onMouseEnter={() => {
                 if (tourActive && nextTourStep === "themes") setThemeCurrentTargetHovered(true);
-                else if (tourActive && nextTourStep !== "themes") setThemeInfoHovered(true);
+                else if (showHintsForNav) setThemeInfoHovered(true);
               }}
               onMouseLeave={() => {
                 setThemeInfoHovered(false);
@@ -652,30 +550,19 @@ export default function Sidebar({
                   <span className="tour-pulse-ring tour-pulse-ring-delay" />
                 </span>
               )}
-              {!expanded && (
+              {!expanded && themeHint && (
                 <>
-                  <TourTooltipPortal
-                    show={tourActive && nextTourStep !== "themes" && themeInfoHovered}
+                  <HintTooltipPortal
+                    show={showHintsForNav && !(tourActive && nextTourStep === "themes") && themeInfoHovered}
                     triggerRef={themePanelCollapsedRef as RefObject<HTMLElement | null>}
                     placement="right-bottom"
                   >
-                    <TourRichTooltipCard
-                      title="Themes"
-                      description={TOUR_STEP_DESCRIPTIONS.themes}
-                      actionLabel="Open theme panel below"
-                      onActionClick={() => setThemePanelOpen(true)}
-                    />
-                  </TourTooltipPortal>
+                    <HintTooltipCard hint={themeHint} onActionClick={() => setThemePanelOpen(true)} />
+                  </HintTooltipPortal>
                   {tourActive && nextTourStep === "themes" && (
-                    <TourTooltipPortal show={themeCurrentTargetHovered} triggerRef={themePanelCollapsedRef as RefObject<HTMLElement | null>} placement="right-bottom">
-                      <TourRichTooltipCard
-                        title="Go here next: Themes"
-                        description={TOUR_STEP_DESCRIPTIONS.themes}
-                        actionLabel="Open theme panel below"
-                        isNextStep
-                        onActionClick={() => setThemePanelOpen(true)}
-                      />
-                    </TourTooltipPortal>
+                    <HintTooltipPortal show={themeCurrentTargetHovered} triggerRef={themePanelCollapsedRef as RefObject<HTMLElement | null>} placement="right-bottom">
+                      <HintTooltipCard hint={themeHint} titleOverride="Go here next: Themes" isNextStep onActionClick={() => setThemePanelOpen(true)} />
+                    </HintTooltipPortal>
                   )}
                 </>
               )}
@@ -686,10 +573,13 @@ export default function Sidebar({
                     <AlertCircle className="h-2.5 w-2.5" aria-hidden />
                   </span>
                 )}
-                {tourActive && nextTourStep !== "themes" && (
+                {showHintsForNav && !(tourActive && nextTourStep === "themes") && themeHint && (
                   <span
-                    className="tour-info-icon absolute -top-0.5 -right-0.5 inline-flex"
-                    style={{ animation: "tour-info-pulse 1.8s ease-in-out infinite", willChange: "transform" }}
+                    className={cn("absolute -top-0.5 -right-0.5 inline-flex", hintsOnly ? "hint-info-icon-subdued" : "tour-info-icon")}
+                    style={{
+                      animation: hintsOnly ? "hint-info-pulse-subdued 2.5s ease-in-out infinite" : "tour-info-pulse 1.8s ease-in-out infinite",
+                      willChange: "transform",
+                    }}
                   >
                     <Info className="h-3 w-3" aria-hidden />
                   </span>
@@ -730,6 +620,26 @@ export default function Sidebar({
           )}
           <button
             type="button"
+            title={hintsEnabled ? "Turn off Helpful hints" : "Turn on Helpful hints"}
+            aria-label={hintsEnabled ? "Turn off Helpful hints" : "Turn on Helpful hints"}
+            className={cn(
+              "flex w-full items-center rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground",
+              expanded ? "gap-2 px-3 py-2" : "justify-center px-0 py-2"
+            )}
+            onClick={() => hintsContext?.setHintsEnabled(!hintsEnabled)}
+          >
+            <HelpCircle className="h-4 w-4 shrink-0" />
+            {expanded && (
+              <span className="flex-1 text-left">Helpful hints</span>
+            )}
+            {expanded && (
+              <span className={cn("text-xs font-medium", hintsEnabled ? "text-primary" : "text-muted-foreground")}>
+                {hintsEnabled ? "On" : "Off"}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
             title={pinned ? "Unpin sidebar" : "Pin sidebar open"}
             aria-label={pinned ? "Unpin sidebar" : "Pin sidebar open"}
             className={cn(
@@ -756,7 +666,7 @@ export default function Sidebar({
           aria-label="Close navigation menu"
           onClick={onCloseMobile}
         />
-        <aside className="absolute inset-y-0 left-0 w-72 overflow-y-auto border-r border-border bg-card p-2 shadow-xl">
+        <aside className="absolute inset-y-0 left-0 w-72 overflow-y-auto overflow-x-hidden border-r border-border bg-card p-2 shadow-xl sidebar-scroll-hide">
           <div className="mb-2 flex items-center justify-between rounded-md px-3 py-2">
             <div className="flex items-center gap-2">
               <div className="h-7 w-7 rounded-md bg-primary/15 text-primary text-xs font-semibold flex items-center justify-center">
