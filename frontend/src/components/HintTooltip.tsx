@@ -21,8 +21,9 @@ import { useTourOptional } from "@/lib/tour";
 
 const GAP = 8;
 const PORTAL_Z = 9999;
+const TOOLTIP_MAX_WIDTH = 320;
 
-export type HintTooltipPlacement = "right-center" | "right-bottom";
+export type HintTooltipPlacement = "right-center" | "right-bottom" | "left-center" | "left-bottom";
 
 /** Rich tooltip card: title, body copy, and text-style action. */
 export function HintTooltipCard({
@@ -89,7 +90,32 @@ export function HintTooltipCard({
   );
 }
 
-/** Renders children in a portal, positioned next to the trigger. */
+/** Resolves placement to right or left based on viewport space; vertical part unchanged. */
+function resolvePlacement(
+  rect: DOMRect,
+  placement: HintTooltipPlacement
+): { left: number; top: number; transform: string; placeOnLeft: boolean } {
+  const viewportWidth = window.innerWidth;
+  const spaceRight = viewportWidth - (rect.right + GAP);
+  const placeOnLeft =
+    placement.startsWith("left") ||
+    (placement.startsWith("right") && spaceRight < TOOLTIP_MAX_WIDTH);
+
+  const isCenter =
+    placement === "right-center" || placement === "left-center";
+  const top = isCenter
+    ? rect.top + rect.height / 2
+    : rect.bottom + GAP;
+  const transform = isCenter ? "translateY(-50%)" : "";
+
+  const left = placeOnLeft
+    ? Math.max(GAP, rect.left - TOOLTIP_MAX_WIDTH - GAP)
+    : rect.right + GAP;
+
+  return { left, top, transform, placeOnLeft };
+}
+
+/** Renders children in a portal, positioned next to the trigger. Flips to left when near right edge. */
 export function HintTooltipPortal({
   show,
   triggerRef,
@@ -101,21 +127,23 @@ export function HintTooltipPortal({
   placement: HintTooltipPlacement;
   children: ReactNode;
 }) {
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(
-    null
-  );
+  const [position, setPosition] = useState<{
+    left: number;
+    top: number;
+    transform: string;
+  } | null>(null);
 
   const updatePosition = useMemo(
     () => () => {
       const el = triggerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      const left = rect.right + GAP;
-      const top =
-        placement === "right-center"
-          ? rect.top + rect.height / 2
-          : rect.bottom + GAP;
-      setPosition({ left, top });
+      const resolved = resolvePlacement(rect, placement);
+      setPosition({
+        left: resolved.left,
+        top: resolved.top,
+        transform: resolved.transform,
+      });
     },
     [triggerRef, placement]
   );
@@ -146,8 +174,8 @@ export function HintTooltipPortal({
     left: position.left,
     top: position.top,
     zIndex: PORTAL_Z,
-    transform:
-      placement === "right-center" ? "translateY(-50%)" : undefined,
+    transform: position.transform || undefined,
+    maxWidth: TOOLTIP_MAX_WIDTH,
   };
 
   return createPortal(
