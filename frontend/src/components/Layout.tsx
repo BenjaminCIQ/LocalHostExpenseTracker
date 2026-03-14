@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import TourGuideStrip from "@/components/TourGuideStrip";
+import TourPromptIfPending from "@/components/TourPromptIfPending";
 import TourStepTracker from "@/components/TourStepTracker";
 
 export default function Layout() {
@@ -10,6 +11,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex">
+      <TourPromptIfPending />
       <TourStepTracker />
       <Sidebar mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
       <div className="min-w-0 flex-1 flex flex-col">

@@ -6,6 +6,7 @@ import { api, type Person } from "@/lib/api";
 import PersonIcon from "@/components/icons/PersonIcon";
 import { useAuth } from "@/lib/auth";
 import { useTourOptional } from "@/lib/tour";
+import { END_TOUR_CLICK_EVENT } from "@/components/TourGuideStrip";
 
 export default function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   const { person, logout } = useAuth();
@@ -34,6 +35,12 @@ export default function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => vo
     else localStorage.removeItem("selected_person_id");
     window.dispatchEvent(new Event("person-filter-changed"));
   }, [selectedPersonId]);
+
+  useEffect(() => {
+    const handler = () => setShowEndTourModal(true);
+    window.addEventListener(END_TOUR_CLICK_EVENT, handler);
+    return () => window.removeEventListener(END_TOUR_CLICK_EVENT, handler);
+  }, []);
 
   async function onLogout() {
     await logout();

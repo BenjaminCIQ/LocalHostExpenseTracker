@@ -37,6 +37,13 @@ function RequireAuthLayout() {
 
 function PublicOnlyRoute({ children }: { children: ReactElement }) {
   const { authenticated, loading } = useAuth();
+  // #region agent log
+  if (authenticated) {
+    const _logAuth = { sessionId: '14f1be', location: 'App.tsx:PublicOnlyRoute', message: 'Rendering with authenticated=true, will redirect', data: { authenticated }, timestamp: Date.now(), hypothesisId: 'H5' };
+    console.log('[TourDebug]', _logAuth);
+    fetch('http://127.0.0.1:7587/ingest/0bbc1a12-ca1b-43b3-92f0-6f91d46a2dfe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '14f1be' }, body: JSON.stringify(_logAuth) }).catch(() => {});
+  }
+  // #endregion
   if (loading) return <div className="p-6 text-sm text-muted-foreground">Checking session...</div>;
   if (authenticated) return <Navigate to="/" replace />;
   return children;

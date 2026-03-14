@@ -293,3 +293,48 @@ body {
 .react-grid-item > .react-resizable-handle.react-resizable-handle-s::after {
   display: none;
 }
+
+/* Tour: outward-emanating pulse on the sidebar link to click (slow, emphatic) */
+@keyframes tour-pulse-out {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+.tour-pulse-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--color-primary);
+  pointer-events: none;
+  animation: tour-pulse-out 3s ease-out infinite;
+}
+.tour-pulse-ring-delay {
+  animation-delay: 1.5s;
+}
+
+/* Tour: lighter shade of primary for info icons (so they’re visible but softer than the ! badge) */
+.tour-info-icon {
+  color: color-mix(in srgb, var(--color-primary) 75%, white);
+}
+
+/* Tour: visible pulse on info icons so they stand out */
+@keyframes tour-info-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.15);
+  }
+}
+.tour-info-pulse {
+  animation: tour-info-pulse 1.8s ease-in-out infinite;
+  display: inline-flex;
+}
