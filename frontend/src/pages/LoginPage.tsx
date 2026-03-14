@@ -4,11 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { api, type AuthPersonOption } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import {
-  getTourPromptDone,
-  setTourPromptDone,
-  setTourStartNextLoad,
-} from "@/lib/tour";
+import { clearTourPromptPending, setTourPromptPending } from "@/lib/tour";
 
 export default function LoginPage() {
   const { authenticated, loading, refreshAuth } = useAuth();
@@ -19,8 +15,6 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [optionsLoaded, setOptionsLoaded] = useState(false);
-  const [showTourModal, setShowTourModal] = useState(false);
-  const [pendingFromPath, setPendingFromPath] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -46,91 +40,43 @@ export default function LoginPage() {
     if (!personId || !password.trim()) return;
     setBusy(true);
     setError("");
+    const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
+    // #region agent log
+    const _log1 = { sessionId: '14f1be', location: 'LoginPage.tsx:submit:beforeSetPending', message: 'Login submit started', data: { from }, timestamp: Date.now(), hypothesisId: 'H1' };
+    console.log('[TourDebug]', _log1);
+    fetch('http://127.0.0.1:7587/ingest/0bbc1a12-ca1b-43b3-92f0-6f91d46a2dfe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '14f1be' }, body: JSON.stringify(_log1) }).catch(() => {});
+    // #endregion
+    setTourPromptPending(from);
     try {
       await api.login({ person_id: Number(personId), password, remember_me: rememberMe });
       await refreshAuth();
-      const me = await api.getAuthMe();
-      const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
-      const pid = me.person?.id ?? null;
-      if (pid !== null && !getTourPromptDone(pid)) {
-        setPendingFromPath(from);
-        setShowTourModal(true);
-        return;
-      }
+      // #region agent log
+      const _log2 = { sessionId: '14f1be', location: 'LoginPage.tsx:submit:beforeNavigate', message: 'About to navigate after login', data: { from }, timestamp: Date.now(), hypothesisId: 'H1' };
+      console.log('[TourDebug]', _log2);
+      fetch('http://127.0.0.1:7587/ingest/0bbc1a12-ca1b-43b3-92f0-6f91d46a2dfe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '14f1be' }, body: JSON.stringify(_log2) }).catch(() => {});
+      // #endregion
       navigate(from, { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed");
+      clearTourPromptPending();
     } finally {
       setBusy(false);
     }
   }
 
-  function handleTourChoice(takeTour: boolean) {
-    const me = api.getAuthMe();
-    me.then((auth) => {
-      const pid = auth.person?.id;
-      if (pid != null) setTourPromptDone(pid);
-      const from = pendingFromPath ?? "/";
-      setShowTourModal(false);
-      setPendingFromPath(null);
-      setBusy(false);
-      if (takeTour) {
-        setTourStartNextLoad();
-        navigate("/transactions", { replace: true });
-      } else {
-        navigate(from, { replace: true });
-      }
-    });
-  }
-
   if (loading) return <div className="p-6 text-sm text-muted-foreground">Checking session...</div>;
   if (authenticated) return <Navigate to="/" replace />;
-
-  if (showTourModal) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-        <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
-          <h2 className="text-lg font-semibold">Would you like to take a short tour?</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            We can walk you through adding an account, importing demo data, and exploring the app.
-          </p>
-          <div className="mt-6 flex gap-3">
-            <Button
-              onClick={() => handleTourChoice(true)}
-              className="flex-1"
-            >
-              Yes, take the tour
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => handleTourChoice(false)}
-              className="flex-1"
-            >
-              No, go to Dashboard
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (showCreateAccount) {
     return (
       <CreateAccountForm
         onSuccess={() => {
+          const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
+          setTourPromptPending(from);
           refreshAuth()
-            .then(() => api.getAuthMe())
-            .then((me) => {
-              const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
-              const pid = me.person?.id ?? null;
-              if (pid !== null && !getTourPromptDone(pid)) {
-                setPendingFromPath(from);
-                setShowTourModal(true);
-              } else {
-                navigate(from, { replace: true });
-              }
-            })
+            .then(() => navigate(from, { replace: true }))
             .catch(() => {
+              clearTourPromptPending();
               navigate("/login", { replace: true, state: { from: (location.state as { from?: { pathname?: string } } | null)?.from } });
             });
         }}
@@ -170,15 +116,19 @@ export default function LoginPage() {
             </div>
           </div>
         ) : (
-          <>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submit();
+            }}
+          >
             <div>
               <div className="mb-1 text-xs text-muted-foreground">Password</div>
               <PasswordInput
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void submit();
-                }}
+                autoComplete="current-password"
               />
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -189,10 +139,10 @@ export default function LoginPage() {
               />
               Remember me
             </label>
-            <Button onClick={() => void submit()} disabled={!personId || !password.trim() || busy}>
+            <Button type="submit" disabled={!personId || !password.trim() || busy}>
               {busy ? "Signing in..." : "Sign in"}
             </Button>
-          </>
+          </form>
         )}
       </div>
     </div>
@@ -237,57 +187,64 @@ function CreateAccountForm({ onSuccess }: { onSuccess: () => void }) {
       </p>
       <div className="rounded-lg border border-border bg-card p-4 space-y-3">
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <div>
-          <div className="mb-1 text-xs text-muted-foreground">Your name</div>
-          <input
-            type="text"
-            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
-            placeholder="e.g. Benjamin"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-          />
-        </div>
-        <div>
-          <div className="mb-1 text-xs text-muted-foreground">Password</div>
-          <PasswordInput
-            placeholder="At least 8 characters"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setError("");
-            }}
-          />
-        </div>
-        <div>
-          <div className="mb-1 text-xs text-muted-foreground">Confirm password</div>
-          <PasswordInput
-            value={confirmPassword}
-            onChange={(e) => {
-              setConfirmPassword(e.target.value);
-              setError("");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void submit();
-            }}
-          />
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={rememberMe}
-            onChange={(e) => setRememberMe(e.target.checked)}
-          />
-          Remember me
-        </label>
-        <div className="flex flex-col gap-2">
-          <Button
-            onClick={() => void submit()}
-            disabled={!name.trim() || !password || password !== confirmPassword || busy}
-          >
-            {busy ? "Creating..." : "Create account"}
-          </Button>
-        </div>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">Your name</div>
+            <input
+              type="text"
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+              placeholder="e.g. Benjamin"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
+            />
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">Password</div>
+            <PasswordInput
+              placeholder="At least 8 characters"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError("");
+              }}
+              autoComplete="new-password"
+            />
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">Confirm password</div>
+            <PasswordInput
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                setError("");
+              }}
+              autoComplete="new-password"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+            />
+            Remember me
+          </label>
+          <div className="flex flex-col gap-2">
+            <Button
+              type="submit"
+              disabled={!name.trim() || !password || password !== confirmPassword || busy}
+            >
+              {busy ? "Creating..." : "Create account"}
+            </Button>
+          </div>
+        </form>
       </div>
     </div>
   );

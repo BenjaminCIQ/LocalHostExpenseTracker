@@ -127,7 +127,8 @@ def setup_first_user(
     response: Response,
     db: Session = Depends(get_db),
 ):
-    """Create the first user (person + password) when no one has credentials yet."""
+    """Create the first user (person + password) when no one has credentials yet.
+    The first user is always created as an admin."""
     has_any_credential = db.query(PersonCredential).first() is not None
     if has_any_credential:
         raise HTTPException(
@@ -138,7 +139,7 @@ def setup_first_user(
     existing = db.query(Person).filter(Person.name == name).first()
     if existing:
         raise HTTPException(status_code=409, detail="Person with this name already exists")
-    person = Person(name=name)
+    person = Person(name=name, is_admin=True)
     db.add(person)
     db.flush()
     account = Account(

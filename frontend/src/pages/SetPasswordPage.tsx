@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { api, type AuthPersonOption } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { clearTourPromptPending, setTourPromptPending } from "@/lib/tour";
 
 export default function SetPasswordPage() {
   const { authenticated, loading, refreshAuth } = useAuth();
@@ -37,12 +38,14 @@ export default function SetPasswordPage() {
     }
     setBusy(true);
     setError("");
+    setTourPromptPending("/");
     try {
       await api.bootstrapAuth({ person_id: personId, password, remember_me: rememberMe });
       await refreshAuth();
       navigate("/", { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to set password");
+      clearTourPromptPending();
     } finally {
       setBusy(false);
     }
@@ -56,39 +59,49 @@ export default function SetPasswordPage() {
       <h1 className="text-2xl font-bold">Set initial password</h1>
       <div className="rounded-lg border border-border bg-card p-4 space-y-3">
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <div className="text-sm text-muted-foreground">
-          Person: <span className="font-medium text-foreground">{selected?.name ?? "Unknown"}</span>
-        </div>
-        <div>
-          <div className="mb-1 text-xs text-muted-foreground">Password</div>
-          <PasswordInput
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-        <div>
-          <div className="mb-1 text-xs text-muted-foreground">Confirm password</div>
-          <PasswordInput
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-          />
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={rememberMe}
-            onChange={(e) => setRememberMe(e.target.checked)}
-          />
-          Remember me
-        </label>
-        <div className="flex items-center gap-2">
-          <Button onClick={() => void submit()} disabled={!personId || !password || !confirmPassword || busy}>
-            {busy ? "Saving..." : "Set password"}
-          </Button>
-          <Link className="text-sm text-muted-foreground underline" to="/login">
-            Back to sign in
-          </Link>
-        </div>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <div className="text-sm text-muted-foreground">
+            Person: <span className="font-medium text-foreground">{selected?.name ?? "Unknown"}</span>
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">Password</div>
+            <PasswordInput
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">Confirm password</div>
+            <PasswordInput
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+            />
+            Remember me
+          </label>
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={!personId || !password || !confirmPassword || busy}>
+              {busy ? "Saving..." : "Set password"}
+            </Button>
+            <Link className="text-sm text-muted-foreground underline" to="/login">
+              Back to sign in
+            </Link>
+          </div>
+        </form>
       </div>
     </div>
   );
