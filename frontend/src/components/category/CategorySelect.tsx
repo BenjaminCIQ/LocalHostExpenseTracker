@@ -46,9 +46,23 @@ export default function CategorySelect({
   disabled?: boolean;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const highlightedRowRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+
+  useEffect(() => {
+    if (open) {
+      setSearch("");
+      setHighlightedIndex(0);
+      const id = requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [open]);
 
   const visibleCategories = useMemo(() => {
     const blocked = new Set(excludeIds);
@@ -78,12 +92,31 @@ export default function CategorySelect({
       search.trim().length > 0
         ? new Set(collectIds(filteredTree))
         : expandedIds;
-    return flattenCategoryTree(filteredTree, {
+    const flat = flattenCategoryTree(filteredTree, {
       includePath: false,
       expandedIds: useExpanded,
     });
+    const q = search.trim().toLowerCase();
+    if (!q) return flat;
+    return [...flat].sort((a, b) => {
+      const aMatch = a.name.toLowerCase().includes(q);
+      const bMatch = b.name.toLowerCase().includes(q);
+      if (aMatch && !bMatch) return -1;
+      if (!aMatch && bMatch) return 1;
+      return 0;
+    });
   }, [expandedIds, filteredTree, search]);
   const allVisibleIds = useMemo(() => visibleRows.map((row) => row.id), [visibleRows]);
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [search, visibleRows.length]);
+
+  useEffect(() => {
+    if (open && visibleRows.length > 0) {
+      highlightedRowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [open, highlightedIndex, visibleRows.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -149,21 +182,49 @@ export default function CategorySelect({
             </button>
           </div>
           <input
+            ref={searchInputRef}
+            type="text"
             className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
             placeholder="Search categories..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHighlightedIndex((i) => (visibleRows.length ? Math.min(i + 1, visibleRows.length - 1) : 0));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHighlightedIndex((i) => Math.max(0, i - 1));
+                return;
+              }
+              if (e.key === "Enter" && visibleRows.length > 0) {
+                e.preventDefault();
+                const row = visibleRows[highlightedIndex];
+                if (row.hasChildren && !search.trim() && !expandedIds.has(row.id)) {
+                  setExpandedIds((prev) => new Set(prev).add(row.id));
+                } else {
+                  onChange(row.id);
+                  setOpen(false);
+                }
+                return;
+              }
+              e.stopPropagation();
+            }}
           />
           <div className="mt-2 max-h-72 overflow-auto rounded-md border border-border p-1">
             <div className="space-y-0.5">
-              {visibleRows.map((row) => (
+              {visibleRows.map((row, index) => (
                 <div
                   key={row.id}
+                  ref={index === highlightedIndex ? highlightedRowRef : undefined}
                   role="button"
                   tabIndex={0}
                   className={cn(
                     "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm",
-                    value === row.id ? "bg-primary/10" : "hover:bg-muted/40"
+                    value === row.id ? "bg-primary/10" : "hover:bg-muted/40",
+                    index === highlightedIndex && "ring-1 ring-primary/50 bg-muted/50"
                   )}
                   title={row.name}
                   onClick={() => {
