@@ -65,19 +65,37 @@ class CSVBankParser(BankParser):
     def can_parse(self, file_content: str, filename: str) -> bool:
         return filename.lower().endswith(".csv")
 
+    def _line_has_date_and_amount_keywords(self, cells: list[str]) -> bool:
+        """True if at least one cell has a date keyword and one has an amount keyword (for header detection)."""
+        lower_cells = [c.strip().lower().strip('"') for c in cells]
+        has_date = any(
+            any(kw in cell for kw in self._DATE_KEYWORDS) for cell in lower_cells
+        )
+        has_amount = any(
+            any(kw in cell for kw in self._AMOUNT_KEYWORDS) for cell in lower_cells
+        )
+        return has_date and has_amount
+
     def _make_reader(self, file_content: str, delimiter: str | None):
         sample = file_content[:4096]
         if delimiter:
             return csv.reader(io.StringIO(file_content), delimiter=delimiter), delimiter
+        # When file has a preamble (e.g. docs example CSVs), Sniffer can pick the wrong delimiter.
+        # Find the first line that looks like a header (date + amount keywords) and infer delimiter.
+        lines = sample.splitlines()[:25]
+        for line in lines:
+            for delim in (";", ",", "\t", "|"):
+                cells = [c.strip() for c in line.split(delim)]
+                if len(cells) >= 2 and self._line_has_date_and_amount_keywords(cells):
+                    return csv.reader(io.StringIO(file_content), delimiter=delim), delim
         try:
             dialect = csv.Sniffer().sniff(sample, delimiters=";,\t|")
             return csv.reader(io.StringIO(file_content), dialect), dialect.delimiter
         except csv.Error:
-            # Fallback: choose delimiter by frequency across first few lines.
-            first_lines = "\n".join(sample.splitlines()[:20])
+            first_lines = "\n".join(lines)
             candidates = [";", ",", "\t", "|"]
             counts = {d: first_lines.count(d) for d in candidates}
-            best = max(counts, key=counts.get)
+            best = max(candidates, key=lambda d: counts.get(d, 0))
             return csv.reader(io.StringIO(file_content), delimiter=best), best
 
     def _row_to_line(self, row: list[str], delimiter: str) -> str:

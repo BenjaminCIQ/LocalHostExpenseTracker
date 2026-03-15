@@ -917,6 +917,15 @@ export const api = {
     );
   },
 
+  /** Fetch a sample CSV for the tour (main or savings account example). */
+  getExampleCsv: async (file: "main" | "savings"): Promise<File> => {
+    const filename = file === "main" ? "example_MainAcc_mt940.csv" : "example_savings.csv";
+    const res = await fetch(`${BASE}/upload/example-csv?file=${file}`);
+    if (!res.ok) throw new Error("Failed to load sample file");
+    const blob = await res.blob();
+    return new File([blob], filename, { type: "text/csv" });
+  },
+
   uploadFile: async (
     file: File,
     accountId: number,

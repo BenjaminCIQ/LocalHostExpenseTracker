@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { api, type AuthPersonOption } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { clearTourPromptPending, setTourPromptPending } from "@/lib/tour";
+import { clearTourPromptPending, clearTourLocalStorageOnLogin, setTourPromptPending } from "@/lib/tour";
 
 export default function SetPasswordPage() {
   const { authenticated, loading, refreshAuth } = useAuth();
@@ -41,6 +41,7 @@ export default function SetPasswordPage() {
     setTourPromptPending("/");
     try {
       await api.bootstrapAuth({ person_id: personId, password, remember_me: rememberMe });
+      clearTourLocalStorageOnLogin(personId);
       await refreshAuth();
       navigate("/", { replace: true });
     } catch (e) {

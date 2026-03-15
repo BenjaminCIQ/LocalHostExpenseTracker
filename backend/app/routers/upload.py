@@ -1,6 +1,8 @@
 import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -13,6 +15,13 @@ from app.services.ingestion_service import ingest_file
 from app.services.transfer_reconciliation_service import apply_transfer_linking_rules
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
+
+# Project docs folder (backend/app/routers -> project root)
+_DOCS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "docs"
+EXAMPLE_CSV_FILES = {
+    "main": "example_MainAcc_mt940.csv",
+    "savings": "example_savings.csv",
+}
 
 @router.post("/", response_model=ImportResult)
 async def upload_bank_statement(
@@ -81,4 +90,21 @@ async def upload_bank_statement(
         account_id=account_id,
         potential_duplicates=getattr(batch, "_potential_duplicates", []),
         duplicate_overrides_applied=getattr(batch, "_duplicate_overrides_applied", 0),
+    )
+
+
+@router.get("/example-csv", response_class=PlainTextResponse)
+async def get_example_csv(
+    file: str = Query(..., description="Which sample: 'main' or 'savings'"),
+):
+    """Return a sample CSV for the tour. Used by the frontend to upload without file picker."""
+    if file not in EXAMPLE_CSV_FILES:
+        raise HTTPException(status_code=400, detail="file must be 'main' or 'savings'")
+    path = _DOCS_DIR / EXAMPLE_CSV_FILES[file]
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Example file not found")
+    return PlainTextResponse(
+        path.read_text(encoding="utf-8"),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{EXAMPLE_CSV_FILES[file]}"'},
     )

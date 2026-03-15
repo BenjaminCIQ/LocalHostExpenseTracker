@@ -138,7 +138,11 @@ function ClassifyCell({
       <CategorySelect
         categories={categories}
         value={selectedCat}
-        onChange={(value) => setSelectedCat(typeof value === "number" ? value : "")}
+        onChange={(value) => {
+          const id = typeof value === "number" ? value : "";
+          setSelectedCat(id);
+          if (typeof value === "number") onClassify(transaction.id, value);
+        }}
         className="w-40"
         placeholder="Select..."
         mode="path"
@@ -149,15 +153,6 @@ function ClassifyCell({
         onClick={() => setShowNewCategory((s) => !s)}
       >
         New
-      </Button>
-      <Button
-        size="sm"
-        disabled={!selectedCat}
-        onClick={() => {
-          if (selectedCat) onClassify(transaction.id, selectedCat);
-        }}
-      >
-        Assign
       </Button>
       {transaction.predicted_category_id && (
         <Button
@@ -872,6 +867,38 @@ export default function TransactionsPage() {
       setError(e instanceof Error ? e.message : "Classification failed");
     }
   };
+
+  const applySimilarTransactions = useCallback(async () => {
+    if (!similarCategoryId || similarSelected.size === 0 || similarLoading) return;
+    setSimilarLoading(true);
+    try {
+      await api.bulkClassify({
+        transaction_ids: Array.from(similarSelected),
+        category_id: similarCategoryId,
+      });
+      setSimilarOpen(false);
+      setSimilarCandidates([]);
+      setSimilarSelected(new Set());
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bulk classify failed");
+    } finally {
+      setSimilarLoading(false);
+    }
+  }, [similarCategoryId, similarSelected, similarLoading]);
+
+  useEffect(() => {
+    if (!similarOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
+      e.preventDefault();
+      void applySimilarTransactions();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [similarOpen, applySimilarTransactions]);
 
   const handleClassifyAll = async () => {
     try {
@@ -2877,26 +2904,7 @@ export default function TransactionsPage() {
                 </Button>
                 <Button
                   disabled={selectedCount === 0 || similarLoading || !similarCategoryId}
-                  onClick={async () => {
-                    if (!similarCategoryId) return;
-                    setSimilarLoading(true);
-                    try {
-                      await api.bulkClassify({
-                        transaction_ids: Array.from(similarSelected),
-                        category_id: similarCategoryId,
-                      });
-                      setSimilarOpen(false);
-                      setSimilarCandidates([]);
-                      setSimilarSelected(new Set());
-                      load();
-                    } catch (e) {
-                      setError(
-                        e instanceof Error ? e.message : "Bulk classify failed"
-                      );
-                    } finally {
-                      setSimilarLoading(false);
-                    }
-                  }}
+                  onClick={() => void applySimilarTransactions()}
                 >
                   Apply to selected
                 </Button>

@@ -128,22 +128,32 @@ export default function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => vo
           <p className="mt-2 text-sm text-muted-foreground">
             Would you like to remove all demo data (accounts and transactions created during the tour) and start with a fresh slate? Your login account will not be affected.
           </p>
-          <div className="mt-6 flex gap-3">
+          <div className="mt-6 flex flex-col gap-3">
+            <div className="flex gap-3">
+              <Button
+                onClick={() => handleEndTour(true)}
+                disabled={endingTour}
+                variant="default"
+                className="flex-1"
+              >
+                {endingTour ? "Removing…" : "Delete demo data and start fresh"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleEndTour(false)}
+                disabled={endingTour}
+                className="flex-1"
+              >
+                Keep data and exit
+              </Button>
+            </div>
             <Button
-              onClick={() => handleEndTour(true)}
+              variant="ghost"
+              onClick={() => setShowEndTourModal(false)}
               disabled={endingTour}
-              variant="default"
-              className="flex-1"
+              className="w-full"
             >
-              {endingTour ? "Removing…" : "Delete demo data and start fresh"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => handleEndTour(false)}
-              disabled={endingTour}
-              className="flex-1"
-            >
-              Keep data and exit
+              Cancel — continue tour
             </Button>
           </div>
         </div>

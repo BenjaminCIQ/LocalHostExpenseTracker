@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { api, type AuthPersonOption } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { clearTourPromptPending, setTourPromptPending } from "@/lib/tour";
+import { clearAllTourLocalStorage, clearTourPromptPending, clearTourLocalStorageOnLogin, setTourPromptPending } from "@/lib/tour";
 
 export default function LoginPage() {
   const { authenticated, loading, refreshAuth } = useAuth();
@@ -49,6 +49,7 @@ export default function LoginPage() {
     setTourPromptPending(from);
     try {
       await api.login({ person_id: Number(personId), password, remember_me: rememberMe });
+      clearTourLocalStorageOnLogin(Number(personId));
       await refreshAuth();
       // #region agent log
       const _log2 = { sessionId: '14f1be', location: 'LoginPage.tsx:submit:beforeNavigate', message: 'About to navigate after login', data: { from }, timestamp: Date.now(), hypothesisId: 'H1' };
@@ -68,12 +69,13 @@ export default function LoginPage() {
   if (authenticated) return <Navigate to="/" replace />;
 
   if (showCreateAccount) {
-    return (
-      <CreateAccountForm
-        onSuccess={() => {
-          const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
-          setTourPromptPending(from);
-          refreshAuth()
+  return (
+    <CreateAccountForm
+      onSuccess={() => {
+        const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
+        clearAllTourLocalStorage();
+        setTourPromptPending(from);
+        refreshAuth()
             .then(() => navigate(from, { replace: true }))
             .catch(() => {
               clearTourPromptPending();

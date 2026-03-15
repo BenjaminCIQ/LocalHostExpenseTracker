@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Upload, AlertCircle } from "lucide-react";
+import { Upload, AlertCircle, FileUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { api, type Account, type ImportProfile, type ImportResult, type PotentialDuplicate } from "@/lib/api";
@@ -9,6 +9,7 @@ import AccountIcon from "@/components/icons/AccountIcon";
 import { useTourOptional } from "@/lib/tour";
 
 export default function UploadPage({ embedded = false }: { embedded?: boolean }) {
+  const location = useLocation();
   const navigate = useNavigate();
   const tour = useTourOptional();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -54,7 +55,16 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
           navigate("/transactions", { replace: true });
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Upload failed");
+        const msg = e instanceof Error ? e.message : "Upload failed";
+        if (selectedProfile == null) {
+          setError(
+            `${msg} Auto-detect could not parse this file. Create an import profile with the correct column mapping (Profiles tab), or check the file format.`
+          );
+        } else {
+          setError(
+            `${msg} The selected import profile did not work for this file. Edit the profile or create a new one in the Profiles tab.`
+          );
+        }
       } finally {
         setUploading(false);
       }
@@ -80,7 +90,12 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
           { duration: 5000 }
         );
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Duplicate override import failed");
+        const msg = e instanceof Error ? e.message : "Duplicate override import failed";
+        if (selectedProfile == null) {
+          setError(`${msg} Try creating an import profile (Profiles tab) with the correct column mapping.`);
+        } else {
+          setError(`${msg} Edit the selected profile or create a new one in the Profiles tab.`);
+        }
     } finally {
       setUploading(false);
     }
@@ -114,9 +129,73 @@ export default function UploadPage({ embedded = false }: { embedded?: boolean })
     [handleUpload]
   );
 
+  const isOnImportPage = location.pathname === "/import";
+  const showSampleButtons = Boolean(tour?.tourActive && isOnImportPage);
+  const [uploadingSample, setUploadingSample] = useState<"main" | "savings" | null>(null);
+
+  const uploadSample = useCallback(
+    async (which: "main" | "savings") => {
+      if (!selectedAccount) return;
+      setUploadingSample(which);
+      setError("");
+      setResult(null);
+      try {
+        const file = await api.getExampleCsv(which);
+        const res = await api.uploadFile(file, selectedAccount, null);
+        setLastFile(file);
+        setResult(res);
+        setSelectedDuplicateKeys(new Set(res.potential_duplicates.map((d) => d.duplicate_key)));
+        const label = which === "main" ? "Main account sample" : "Savings account sample";
+        toast.success(`${res.transactions_imported} transactions imported from ${label}`);
+        if (tour?.tourActive) {
+          tour.markStepCompleted("import");
+          navigate("/transactions", { replace: true });
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Sample upload failed");
+      } finally {
+        setUploadingSample(null);
+      }
+    },
+    [selectedAccount, tour, navigate]
+  );
+
   return (
     <div className="space-y-6">
       {!embedded && <h2 className="text-2xl font-bold">Upload Bank Statement</h2>}
+
+      {showSampleButtons && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="pt-6">
+            <p className="font-medium mb-2">Upload sample transactions (tour)</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Select the account above, then click to upload the main or savings sample. Auto-detect is used; no import profile needed.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-1.5"
+                disabled={!selectedAccount || uploading !== false || uploadingSample !== null}
+                onClick={() => void uploadSample("main")}
+              >
+                <FileUp className="h-4 w-4" />
+                {uploadingSample === "main" ? "Uploading…" : "Upload main account sample"}
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-1.5"
+                disabled={!selectedAccount || uploading !== false || uploadingSample !== null}
+                onClick={() => void uploadSample("savings")}
+              >
+                <FileUp className="h-4 w-4" />
+                {uploadingSample === "savings" ? "Uploading…" : "Upload savings account sample"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

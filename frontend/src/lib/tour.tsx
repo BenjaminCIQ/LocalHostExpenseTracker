@@ -70,7 +70,7 @@ export const TOUR_STEP_LABELS: Record<TourStepId, string> = {
 /** Rich tooltip/panel copy: a short explanation of each page for tour tooltips and the current-step popover. */
 export const TOUR_STEP_DESCRIPTIONS: Record<TourStepId, string> = {
   transactions:
-    "Your transaction list lives here. After you add bank accounts and import data, you’ll see everything in one place—filter by date, account, or category, and search by description or amount.",
+    "Your transaction list lives here. To get started, go to Import and upload a CSV (e.g. the docs example files). After you import, you’ll see everything here—filter by date, account, or category, and search by description or amount.",
   accounts:
     "Add and manage the bank accounts you import from. Each account has its own balance and transaction history. You’ll need at least one account before you can import; the tour uses a demo account so you can try it safely.",
   categories:
@@ -81,7 +81,7 @@ export const TOUR_STEP_DESCRIPTIONS: Record<TourStepId, string> = {
     "When money moves between your own accounts (e.g. checking → savings), link those transactions as transfers. That way they’re counted once in analytics instead of as income and expense, so your totals stay correct.",
   ml: "The app can learn from how you categorize and suggest categories for new transactions. This page shows training status and when suggestions will start appearing. The more you categorize, the better the suggestions.",
   import:
-    "Upload a CSV of transactions from your bank or use the demo file during the tour. Importing is the first step to see your finances in the app; you can map columns and assign an account before saving.",
+    "Upload a CSV of transactions from your bank. Example files are in your project's docs/ folder (example_MainAcc_mt940.csv, example_savings.csv)—open that folder in the file picker to upload. Use Auto-detect for column mapping; no import profile needed for the docs examples.",
   "transactions-after":
     "Back on the transaction list with your imported data. You can categorize, filter, search, and edit. Use this view to clean up categories and get a feel for how the app works with real (or demo) data.",
   "external-accounts":
@@ -192,6 +192,34 @@ export function clearTourPromptPending() {
   try {
     localStorage.removeItem(TOUR_PROMPT_PENDING_KEY);
     localStorage.removeItem(TOUR_PROMPT_FROM_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** Clear tour state and prompt-done flag so the tour prompt can show again. Call after successful login so a fresh login (e.g. after DB reset) shows the tour prompt. */
+export function clearTourLocalStorageOnLogin(personId: number) {
+  try {
+    localStorage.removeItem(TOUR_STORAGE_KEY);
+    localStorage.removeItem(`${TOUR_PROMPT_DONE_KEY}_${personId}`);
+    localStorage.removeItem(TOUR_START_NEXT_LOAD_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** Clear all tour state and prompt-done flags so the tour prompt can show. Keeps pending/from intact. Use after create-account where personId is not yet known. */
+export function clearAllTourLocalStorage() {
+  try {
+    localStorage.removeItem(TOUR_STORAGE_KEY);
+    localStorage.removeItem(TOUR_START_NEXT_LOAD_KEY);
+    const prefix = `${TOUR_PROMPT_DONE_KEY}_`;
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(prefix)) keys.push(k);
+    }
+    keys.forEach((k) => localStorage.removeItem(k));
   } catch {
     // ignore
   }

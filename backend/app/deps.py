@@ -1,5 +1,6 @@
 """Singleton dependencies shared across the application."""
 
+import logging
 from datetime import datetime
 
 from fastapi import Depends, HTTPException, Request
@@ -40,12 +41,18 @@ def get_pipeline() -> ClassificationPipeline:
     global _pipeline
     if _pipeline is None:
         classifier = get_classifier()
+        ml_stage = MLClassifierStage(classifier)
         _pipeline = ClassificationPipeline(
             stages=[
                 UserOverrideStage(),
                 RuleEngineStage(),
-                MLClassifierStage(classifier),
+                ml_stage,
             ]
+        )
+        logging.getLogger(__name__).info(
+            "Classification pipeline ready; ML stage enabled=%s (model trained=%s)",
+            ml_stage.enabled,
+            classifier.is_trained,
         )
     return _pipeline
 

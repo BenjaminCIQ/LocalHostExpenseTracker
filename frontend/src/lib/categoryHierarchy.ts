@@ -103,13 +103,16 @@ export function filterCategoryTree(
   if (!q) return tree;
 
   const filterNode = (node: CategoryTreeNode): CategoryTreeNode | null => {
-    const children = node.children
-      .map(filterNode)
-      .filter((child): child is CategoryTreeNode => child !== null);
     const match =
       node.name.toLowerCase().includes(q) ||
       (node.is_income ? "income" : "expense").includes(q);
-    if (match || children.length > 0) return { ...node, children };
+    if (match) {
+      return { ...node, children: node.children };
+    }
+    const children = node.children
+      .map(filterNode)
+      .filter((child): child is CategoryTreeNode => child !== null);
+    if (children.length > 0) return { ...node, children };
     return null;
   };
 

@@ -44,7 +44,7 @@ const PAGE_HINTS: Record<string, HintContent> = {
   "/transactions": {
     label: "Transactions",
     description:
-      "Your transaction list lives here. After you add bank accounts and import data, you'll see everything in one place—filter by date, account, or category, and search by description or amount.",
+      "Your transaction list lives here. To get started, go to Import and upload a CSV (e.g. the docs example files). After you import, you'll see everything here—filter by date, account, or category, and search by description or amount.",
     actionLabel: "Go to Transactions",
     actionTo: "/transactions",
   },
@@ -86,7 +86,7 @@ const PAGE_HINTS: Record<string, HintContent> = {
   "/import": {
     label: "Import",
     description:
-      "Upload a CSV of transactions from your bank. Importing is the first step to see your finances in the app; you can map columns and assign an account before saving. Use the Profiles tab to save mappings.",
+      "Upload a CSV of transactions from your bank. Example files are in your project's docs/ folder (example_MainAcc_mt940.csv, example_savings.csv)—open that folder in the file picker to upload. Use Auto-detect for the docs examples; no import profile needed.",
     actionLabel: "Go to Import",
     actionTo: "/import",
   },
