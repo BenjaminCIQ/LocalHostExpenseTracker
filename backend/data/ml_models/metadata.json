@@ -1,6 +1,6 @@
 {
-  "last_trained_at": "2026-03-13T22:19:25.777710+00:00",
-  "cross_val_accuracy": 0.7455,
-  "num_samples": 55,
-  "num_classes": 17
+  "last_trained_at": "2026-03-15T20:04:33.249153+00:00",
+  "cross_val_accuracy": 0.8424,
+  "num_samples": 56,
+  "num_classes": 14
 }

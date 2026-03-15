@@ -91,6 +91,7 @@ class MLClassifier:
             max_iter=1000,
             solver="lbfgs",
             C=1.0,
+            class_weight="balanced",
         )
         self._model.fit(X, labels)
 
@@ -121,6 +122,7 @@ class MLClassifier:
         """Predict category for a transaction.
 
         Returns (category_id, confidence) or None if not trained.
+        confidence is the raw predicted probability of the winning class.
         """
         if not self._is_trained or self._model is None or self._vectorizer is None:
             return None
@@ -131,13 +133,12 @@ class MLClassifier:
         best_idx = int(np.argmax(proba))
         confidence = float(proba[best_idx])
         category_id = int(self._model.classes_[best_idx])
-
         return category_id, confidence
 
     def predict_top_n(
         self, description: str, merchant: str, n: int = 3
     ) -> list[tuple[int, float]]:
-        """Return top N predictions with confidence scores."""
+        """Return top N predictions with confidence scores (raw probabilities)."""
         if not self._is_trained or self._model is None or self._vectorizer is None:
             return []
 

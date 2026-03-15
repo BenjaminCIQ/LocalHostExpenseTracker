@@ -1,4 +1,6 @@
+import json as _json
 import logging
+from pathlib import Path
 
 from app.config import settings
 from app.database import SessionLocal
@@ -65,7 +67,15 @@ class MLClassifierStage(PipelineStage):
         )
 
         threshold = settings.ml_medium_confidence
-        if confidence < threshold:
+        accepted = confidence >= threshold
+        # #region agent log
+        try:
+            _log = Path(__file__).resolve().parent.parent.parent.parent / "debug-2c73df.log"
+            open(_log, "a", encoding="utf-8").write(_json.dumps({"sessionId": "2c73df", "hypothesisId": "H1", "location": "ml_stage.classify", "message": "threshold check", "data": {"txn_id": ctx.transaction_id, "confidence": round(confidence, 4), "threshold": threshold, "accepted": accepted, "category_id": category_id}, "timestamp": __import__("time").time_ns() // 1_000_000}) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        if not accepted:
             logger.info(
                 "ML classifier txn_id=%s not classified: confidence=%.3f < threshold=%.2f (category=%r id=%s)",
                 ctx.transaction_id,

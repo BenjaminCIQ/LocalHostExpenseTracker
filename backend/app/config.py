@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     ml_min_samples_to_train: int = 30
     ml_retrain_threshold: int = 20
     ml_high_confidence: float = 0.85
-    ml_medium_confidence: float = 0.5
+    ml_medium_confidence: float = 0.25
 
     soft_similarity_min_score: int = 85
     soft_similarity_limit: int = 25
