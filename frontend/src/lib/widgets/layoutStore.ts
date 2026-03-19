@@ -10,31 +10,10 @@ interface StoredLayout {
   entries: LayoutEntry[];
 }
 
+/** Legacy flow defaults (size + order); grid positions from `toGridLayout`. */
 const pageDefaults: Record<PageId, LegacyLayoutEntry[]> = {
-  overview: [
-    { widgetId: "kpi-cards", size: "full", order: 1 },
-    { widgetId: "snapshot", size: "xl", order: 2 },
-    { widgetId: "external-funding-context", size: "lg", order: 3 },
-    { widgetId: "net-worth-snapshot", size: "lg", order: 4 },
-    { widgetId: "monthly-bar", size: "lg", order: 5 },
-    { widgetId: "category-pie", size: "lg", order: 6 },
-    { widgetId: "top-categories", size: "lg", order: 7 },
-    { widgetId: "expense-highlights", size: "lg", order: 8 },
-    { widgetId: "person-comparison", size: "xl", order: 9 },
-    { widgetId: "budget-status", size: "xl", order: 10 },
-  ],
-  analytics: [
-    { widgetId: "interactive-category-bar", size: "full", order: 1 },
-    { widgetId: "sankey", size: "full", order: 2 },
-    { widgetId: "category-trend", size: "xl", order: 3 },
-    { widgetId: "outlier-panel", size: "lg", order: 4 },
-    { widgetId: "spending-heatmap", size: "lg", order: 5 },
-    { widgetId: "cashflow-forecast", size: "lg", order: 6 },
-    { widgetId: "year-over-year", size: "lg", order: 7 },
-    { widgetId: "running-balance", size: "lg", order: 8 },
-    { widgetId: "merchant-insights", size: "lg", order: 9 },
-    { widgetId: "recurring", size: "lg", order: 10 },
-  ],
+  overview: [],
+  analytics: [],
   budgets: [
     { widgetId: "budget-management", size: "full", order: 1 },
     { widgetId: "budget-status", size: "lg", order: 2 },
@@ -42,6 +21,203 @@ const pageDefaults: Record<PageId, LegacyLayoutEntry[]> = {
     { widgetId: "enhanced-pie", size: "lg", order: 4 },
   ],
 };
+
+/**
+ * Default layouts for Overview and Analytics (new installs, reset, bad local data).
+ * Explicit x/y/w/h match saved user_preferences for person_id 1.
+ */
+const pageDefaultEntries: Partial<Record<PageId, LayoutEntry[]>> = {
+  overview: [
+    {
+      widgetId: "kpi-cards",
+      size: "full",
+      order: 1,
+      x: 6,
+      y: 0,
+      w: 6,
+      h: 1,
+    },
+    {
+      widgetId: "snapshot",
+      size: "xl",
+      order: 2,
+      x: 6,
+      y: 3,
+      w: 6,
+      h: 2,
+    },
+    {
+      widgetId: "external-funding-context",
+      size: "lg",
+      order: 3,
+      x: 6,
+      y: 1,
+      w: 6,
+      h: 2,
+    },
+    {
+      widgetId: "net-worth-snapshot",
+      size: "lg",
+      order: 4,
+      x: 0,
+      y: 0,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "monthly-bar",
+      size: "lg",
+      order: 5,
+      x: 0,
+      y: 3,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "category-pie",
+      size: "lg",
+      order: 6,
+      x: 6,
+      y: 5,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "top-categories",
+      size: "lg",
+      order: 7,
+      x: 0,
+      y: 6,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "expense-highlights",
+      size: "lg",
+      order: 8,
+      x: 6,
+      y: 8,
+      w: 6,
+      h: 2,
+    },
+    {
+      widgetId: "person-comparison",
+      size: "xl",
+      order: 9,
+      x: 0,
+      y: 9,
+      w: 6,
+      h: 2,
+    },
+    {
+      widgetId: "budget-status",
+      size: "xl",
+      order: 10,
+      x: 6,
+      y: 10,
+      w: 6,
+      h: 1,
+    },
+  ],
+  analytics: [
+    {
+      widgetId: "interactive-category-bar",
+      size: "full",
+      order: 1,
+      x: 0,
+      y: 0,
+      w: 12,
+      h: 5,
+    },
+    {
+      widgetId: "sankey",
+      size: "full",
+      order: 2,
+      x: 0,
+      y: 12,
+      w: 12,
+      h: 4,
+    },
+    {
+      widgetId: "outlier-panel",
+      size: "lg",
+      order: 3,
+      x: 0,
+      y: 19,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "spending-heatmap",
+      size: "lg",
+      order: 4,
+      x: 0,
+      y: 16,
+      w: 12,
+      h: 3,
+    },
+    {
+      widgetId: "cashflow-forecast",
+      size: "lg",
+      order: 5,
+      x: 0,
+      y: 25,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "year-over-year",
+      size: "lg",
+      order: 6,
+      x: 6,
+      y: 19,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "running-balance",
+      size: "lg",
+      order: 7,
+      x: 6,
+      y: 25,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "merchant-insights",
+      size: "lg",
+      order: 8,
+      x: 6,
+      y: 22,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "recurring",
+      size: "lg",
+      order: 9,
+      x: 0,
+      y: 22,
+      w: 6,
+      h: 3,
+    },
+    {
+      widgetId: "spending-habits",
+      size: "full",
+      order: 10,
+      x: 0,
+      y: 5,
+      w: 12,
+      h: 7,
+    },
+  ],
+};
+
+function defaultLayoutForPage(page: PageId): LayoutEntry[] {
+  const explicit = pageDefaultEntries[page];
+  if (explicit) return explicit.map((e) => ({ ...e }));
+  return toGridLayout(pageDefaults[page]);
+}
 
 function getKey(page: PageId, personId: number | null = null) {
   const user = personId != null ? String(personId) : "anon";
@@ -119,18 +295,18 @@ export function hasGridFields(entry: unknown): entry is LayoutEntry {
 
 export function loadLayout(page: PageId, personId: number | null = null): LayoutEntry[] {
   const raw = localStorage.getItem(getKey(page, personId));
-  if (!raw) return toGridLayout(pageDefaults[page]);
+  if (!raw) return defaultLayoutForPage(page);
   try {
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return toGridLayout(pageDefaults[page]);
+    if (!parsed || typeof parsed !== "object") return defaultLayoutForPage(page);
 
     if ("v" in parsed && "entries" in parsed) {
       const stored = parsed as StoredLayout;
       if (stored.v !== LAYOUT_VERSION) {
-        return toGridLayout(pageDefaults[page]);
+        return defaultLayoutForPage(page);
       }
       if (!Array.isArray(stored.entries) || !stored.entries.every(hasGridFields)) {
-        return toGridLayout(pageDefaults[page]);
+        return defaultLayoutForPage(page);
       }
       return stored.entries;
     }
@@ -150,9 +326,9 @@ export function loadLayout(page: PageId, personId: number | null = null): Layout
       }
     }
 
-    return toGridLayout(pageDefaults[page]);
+    return defaultLayoutForPage(page);
   } catch {
-    return toGridLayout(pageDefaults[page]);
+    return defaultLayoutForPage(page);
   }
 }
 
@@ -162,7 +338,7 @@ export function saveLayout(page: PageId, entries: LayoutEntry[], personId: numbe
 }
 
 export function getDefaultLayout(page: PageId): LayoutEntry[] {
-  return toGridLayout(pageDefaults[page]);
+  return defaultLayoutForPage(page);
 }
 
 export function resetLayout(page: PageId, personId: number | null = null) {
