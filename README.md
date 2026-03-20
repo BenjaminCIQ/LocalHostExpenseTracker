@@ -2,7 +2,7 @@
 
 A local-first personal expense tracking system with progressive ML-powered automation. Upload bank statements, classify transactions manually, and watch the system learn to suggest categories with increasing accuracy over time.
 
-This project was built entirely through AI coding agents in my very limited free time to see if I could get something useful without having to invest significant time or effort. I found the process genuinely fascinating and pretty impressive. I'm sharing it publicly in the hope that others find it useful, either as a practical finance tool, or a small (and probably unimpressive) showcase of AI capabilities.
+This project was built entirely through AI coding agents in my very limited free time to see if I could get something useful without having to invest significant time or effort. I found the process genuinely fascinating and pretty impressive. I'm sharing it publicly in the hope that others find it useful, either as a practical finance tool, or a small (and probably unimpressive compared to actual showcases) showcase of AI capabilities.
 
 ## Architecture
 
