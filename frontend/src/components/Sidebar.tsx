@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType, type RefObject } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   AlertCircle,
